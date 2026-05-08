@@ -6,6 +6,7 @@ This directory keeps implementation-oriented project documents.
 
 - [README review](readme-review.md): current README assessment and documentation gaps.
 - [Execution plan](execution-plan.md): staged plan for the first OpenWrt One implementation.
+- [OpenWrt feeds and repos](openwrt-feeds-and-repos.md): repository split, custom feed, and OpenWrt integration workflow.
 - [OpenWrt One telemetry MVP](openwrt-one-telemetry-mvp.md): minimal C package, SQLite, feature sampling, and LuCI plan.
 
 ## Documentation Rules
@@ -14,4 +15,3 @@ This directory keeps implementation-oriented project documents.
 - Keep implementation details, schemas, metric catalogs, package layout, and LuCI plans in `docs/`.
 - Prefer small documents that can become development tickets.
 - Record hardware-specific assumptions with source links and review dates.
-

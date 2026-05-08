@@ -32,6 +32,13 @@ Package name:
 edgepulse
 ```
 
+OpenWrt feed package names:
+
+```text
+edgepulse
+luci-app-edgepulse
+```
+
 Purpose:
 
 - Run a small C daemon on OpenWrt One.
@@ -39,6 +46,13 @@ Purpose:
 - Store samples in SQLite under `/tmp`.
 - Periodically compute training-oriented feature windows.
 - Expose local data to LuCI.
+
+Repository and feed planning:
+
+- Keep core source and docs in the main `edgepulse` repository.
+- Keep OpenWrt package recipes in `edgepulse-openwrt-feed`.
+- Add the feed to OpenWrt through `feeds.conf`.
+- See [OpenWrt feeds and repos](openwrt-feeds-and-repos.md).
 
 Non-goals for the first version:
 
@@ -529,4 +543,3 @@ The first implementation is acceptable when:
 - LuCI shows live overview values from local data.
 - LuCI settings can change sampling interval and collector toggles.
 - A CSV export command returns feature rows suitable for external training.
-

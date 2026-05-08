@@ -30,21 +30,18 @@ Exit criteria:
 
 ## Phase 1: Package Skeleton
 
-Create the OpenWrt package structure:
+Create the OpenWrt feed repository and package structure:
 
 ```text
-package/edgepulse/
-  Makefile
-  files/etc/config/edgepulse
-  files/etc/init.d/edgepulse
-  src/
-    main.c
-    collectors.c
-    collectors.h
-    sqlite_store.c
-    sqlite_store.h
-    feature_window.c
-    feature_window.h
+edgepulse-openwrt-feed/
+  edgepulse/
+    Makefile
+    files/etc/config/edgepulse
+    files/etc/init.d/edgepulse
+  luci-app-edgepulse/
+    Makefile
+    root/usr/share/luci/menu.d/luci-app-edgepulse.json
+    root/usr/share/rpcd/acl.d/luci-app-edgepulse.json
 ```
 
 Initial dependencies:
@@ -56,9 +53,14 @@ Initial dependencies:
 
 Exit criteria:
 
+- OpenWrt can consume the feed through `feeds.conf`.
 - Package cross-compiles in an OpenWrt SDK for `mediatek/filogic`.
 - Daemon starts through `/etc/init.d/edgepulse`.
 - UCI config can enable or disable the daemon.
+
+Reference:
+
+- [OpenWrt feeds and repos](openwrt-feeds-and-repos.md)
 
 ## Phase 2: Minimal Raw Sampling
 
@@ -168,4 +170,3 @@ The first MVP is complete when OpenWrt One can:
 - Derive time-window features.
 - Show latest metrics and settings in LuCI.
 - Export feature rows for external model training.
-

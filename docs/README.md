@@ -4,10 +4,12 @@ This directory keeps implementation-oriented project documents.
 
 ## Documents
 
-- [README review](readme-review.md): current README assessment and documentation gaps.
-- [Execution plan](execution-plan.md): staged plan for the first OpenWrt One implementation.
-- [OpenWrt feeds and repos](openwrt-feeds-and-repos.md): repository split, custom feed, and OpenWrt integration workflow.
-- [OpenWrt One telemetry MVP](openwrt-one-telemetry-mvp.md): minimal C package, SQLite, feature sampling, and LuCI plan.
+- [README review](readme-review.md) / [繁體中文](readme-review.zh-TW.md): current README assessment and documentation gaps.
+- [Execution plan](execution-plan.md) / [繁體中文](execution-plan.zh-TW.md): staged plan for the first OpenWrt One implementation.
+- [OpenWrt feeds and repos](openwrt-feeds-and-repos.md) / [繁體中文](openwrt-feeds-and-repos.zh-TW.md): repository split, custom feed, and OpenWrt integration workflow.
+- [Local OpenWrt package validation](local-openwrt-validation.md) / [繁體中文](local-openwrt-validation.zh-TW.md): local buildroot flow for validating the EdgePulse package.
+- [OpenWrt One telemetry MVP](openwrt-one-telemetry-mvp.md) / [繁體中文](openwrt-one-telemetry-mvp.zh-TW.md): minimal C package, SQLite, feature sampling, and LuCI plan.
+- [OpenWrt AI Agent project requirements plan](openwrt_ai_agent_requirements_plan.md) / [繁體中文](openwrt_ai_agent_requirements_plan.zh-TW.md): runtime requirements, architecture, and milestones for an OpenWrt AI agent.
 
 ## Documentation Rules
 

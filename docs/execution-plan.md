@@ -18,7 +18,7 @@ The project has completed the first MVP path on OpenWrt One:
 - [x] CSV export for training rows backed by stored feature rows.
 - [x] LuCI overview, metrics, features, and settings pages packaged and installed.
 
-The next implementation focus is to add remote training-data upload, canonical feature normalization, longer-running reliability validation, and collector toggle enforcement.
+The next implementation focus is to add remote training-data upload, canonical feature normalization, longer-running reliability validation, collector toggle enforcement, and an optional AI agent runtime that can be enabled, configured, and operated from OpenWrt/LuCI.
 
 ## Goal
 
@@ -285,6 +285,88 @@ Reference:
 
 - [Training data upload and normalization](training-data-upload-and-normalization.md)
 
+## Phase 8: Optional AI Agent Runtime
+
+Status: planned
+
+Add an optional, policy-controlled AI agent to EdgePulse so an OpenWrt device can answer diagnostic questions using local telemetry, safe shell commands, read-only `ubus` queries, local memory, and one or more configured model API servers.
+
+Initial boundary:
+
+- The AI agent is disabled by default unless the package build or UCI config explicitly enables it.
+- The first implementation should be diagnostic and read-only.
+- Remote model use must be explicit and configurable.
+- Tool execution must be policy-gated and auditable.
+- LuCI should expose both an interaction page and settings page before the feature is considered user-ready.
+
+OpenWrt package and build configuration todo:
+
+- [ ] Add an OpenWrt package build option in `packaging/openwrt-feed/edgepulse/Makefile` to include or exclude AI agent support at build time.
+- [ ] Define package config symbols for AI agent defaults, such as `EDGEPULSE_ENABLE_AI_AGENT`, default model provider, default remote base URL, default model name, default local-only mode, and default policy profile.
+- [ ] Avoid baking real secrets into firmware images by default; support a build-time API key placeholder only for development images and prefer runtime UCI or environment-based secret configuration.
+- [ ] Decide whether the first package shape is an optional `edgepulse-agent` subpackage or a feature compiled into the existing `edgepulse` package.
+- [ ] Add package dependencies needed by the first agent implementation, such as TLS/HTTP client support, JSON handling, `libuci`, `libubus`, and SQLite memory.
+- [ ] Ensure image builders can select `edgepulse` without AI agent support for low-memory targets.
+- [ ] Document example `.config` entries for enabling the agent in the standalone `edgepulse-openwrt-feed` workflow.
+
+UCI configuration todo:
+
+- [ ] Extend `packaging/openwrt-feed/edgepulse/files/etc/config/edgepulse` with an `agent` section containing `enabled`, `local_only`, `memory_enabled`, `shell_enabled`, `ubus_enabled`, `policy_profile`, request timeout, tool timeout, and max tool output size.
+- [ ] Add model configuration sections for at least one remote OpenAI-compatible endpoint, including `enabled`, `role`, `base_url`, `model`, `api_key`, `api_key_env`, timeout, and retry settings.
+- [ ] Add defaults that let the agent report a clear "not configured" status when no API key or local model endpoint is available.
+- [ ] Support redacted handling for `api_key` in status output, logs, CLI commands, and LuCI.
+- [ ] Add UCI validation for URL format, model name presence, timeout ranges, memory toggle, shell toggle, and read-only policy mode.
+- [ ] Add migration-safe defaults so installing a new package does not overwrite existing telemetry settings or secret fields.
+
+Agent runtime implementation todo:
+
+- [ ] Add an `edgepulse-agentd` daemon or an agent mode inside the existing daemon with procd lifecycle management.
+- [ ] Add an `edgepulse-agent` or `edgepulse-ctl agent` CLI for `ask`, `diagnose`, `status`, `memory list`, `memory delete`, and `policy show`.
+- [ ] Implement request context tracking with request ID, user message, selected model, tool call history, compacted observation summary, and final answer.
+- [ ] Implement a read-only shell executor with an allowlist, structured argument schemas, timeout, output size limits, exit code capture, and audit logging.
+- [ ] Implement a read-only `ubus` adapter for `system`, `network.interface`, `network.device`, `network.wireless`, `service`, `iwinfo`, and selected status methods.
+- [ ] Implement an OpenAI-compatible model client with configurable base URL, model, API key source, timeout, retries, and response/error normalization.
+- [ ] Implement model routing for roles such as classifier, planner, analyzer, responder, and fallback.
+- [ ] Add local SQLite memory tables for observations, user facts, diagnostic summaries, sensitivity level, TTL, and source metadata.
+- [ ] Add a policy engine that blocks destructive shell commands, UCI mutation, package installation/removal, service restarts, firewall changes, and file deletion by default.
+- [ ] Add audit logs for every request, model call, tool call, policy decision, and memory write.
+- [ ] Add redaction helpers before logging or sending tool output to remote models.
+
+LuCI application todo:
+
+- [ ] Add an AI Agent menu entry under `luci-app-edgepulse`.
+- [ ] Add an interaction page where the user can ask a diagnostic question and see the answer, tool evidence, model used, and policy decisions.
+- [ ] Add a diagnostic shortcut page or mode for common tasks such as WAN down, DNS failure, Wi-Fi instability, high CPU, high memory, and package/service health.
+- [ ] Extend the settings page with AI agent enable/disable, local-only mode, model provider, remote base URL, model name, API key or API key environment variable, memory toggle, shell toggle, `ubus` toggle, policy profile, and timeout settings.
+- [ ] Redact API keys in LuCI and require explicit replacement to change them.
+- [ ] Add a status panel showing whether the agent is enabled, whether a model backend is configured, last request status, memory database status, and policy mode.
+- [ ] Update rpcd ACLs so LuCI can call only the required agent status, ask, diagnostic, memory, and settings endpoints.
+
+Testing and validation todo:
+
+- [ ] Add unit tests for policy allow/deny decisions and command argument validation.
+- [ ] Add tests for model request construction, redaction, timeout handling, retry handling, and fallback behavior.
+- [ ] Add tests for UCI parsing of agent and model sections.
+- [ ] Add fixture tests for shell and `ubus` tool output summarization.
+- [ ] Validate package builds with AI agent disabled and enabled.
+- [ ] Validate installation on OpenWrt One with AI agent disabled by default.
+- [ ] Validate a configured remote model can answer a read-only diagnostic request after setting UCI model parameters.
+- [ ] Validate LuCI interaction and settings pages on desktop and mobile layouts.
+
+Exit criteria:
+
+- AI agent support can be selected or omitted at OpenWrt package build time.
+- Runtime UCI can enable or disable the agent after installation.
+- UCI/LuCI can configure the default remote model base URL, model name, API key source, local-only mode, memory behavior, and tool policy.
+- If the agent is installed without model credentials, it reports a clear configuration status instead of failing silently.
+- A user can ask a diagnostic question from CLI and LuCI.
+- The agent only performs read-only, policy-approved shell and `ubus` actions in the first implementation.
+- Every model call and tool call is logged with secrets redacted.
+
+Reference:
+
+- [OpenWrt AI Agent project requirements plan](openwrt_ai_agent_requirements_plan.md)
+
 ## MVP Definition
 
 The first MVP is complete when OpenWrt One can:
@@ -294,3 +376,10 @@ The first MVP is complete when OpenWrt One can:
 - [x] Derive time-window features.
 - [x] Show latest metrics and settings in LuCI.
 - [x] Export feature rows for external model training.
+
+The AI agent extension becomes implementation-ready when:
+
+- [ ] Build-time and runtime feature toggles are documented.
+- [ ] Default model and credential configuration paths are defined.
+- [ ] LuCI interaction and settings pages are planned as concrete tasks.
+- [ ] The first read-only diagnostic policy is implemented and tested.

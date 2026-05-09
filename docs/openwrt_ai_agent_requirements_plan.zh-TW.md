@@ -275,13 +275,13 @@ Model router 管理與多個 AI model API servers 的通訊。
 
 ### Model Roles
 
-| Role | Purpose | Example Model Type |
-|---|---|---|
-| Classifier | 決定 intent 與 tool safety level | Small local model |
-| Planner | 建立 multi-step diagnostic plan | Strong local or remote model |
-| Tool Result Analyzer | 分析 command 與 ubus output | Local or remote model |
-| Summarizer | 壓縮 context 與 memory | Small local model |
-| Final Responder | 產生 user-facing response | Strong model |
+| Role                 | Purpose                          | Example Model Type           |
+|----------------------|----------------------------------|------------------------------|
+| Classifier           | 決定 intent 與 tool safety level | Small local model            |
+| Planner              | 建立 multi-step diagnostic plan  | Strong local or remote model |
+| Tool Result Analyzer | 分析 command 與 ubus output      | Local or remote model        |
+| Summarizer           | 壓縮 context 與 memory           | Small local model            |
+| Final Responder      | 產生 user-facing response        | Strong model                 |
 
 ## 5.6 Local Memory Manager
 
@@ -300,23 +300,23 @@ Memory manager 儲存 persistent local knowledge。
 
 ### Storage Options
 
-| Storage | Use Case |
-|---|---|
-| JSON files | Simple prototype |
-| SQLite | Recommended baseline |
-| SQLite FTS5 | 對 logs 與 notes 做 text search |
-| Lightweight vector index | Optional semantic retrieval |
-| RRD/time-series DB | Historical metrics |
+| Storage                  | Use Case                        |
+|--------------------------|---------------------------------|
+| JSON files               | Simple prototype                |
+| SQLite                   | Recommended baseline            |
+| SQLite FTS5              | 對 logs 與 notes 做 text search |
+| Lightweight vector index | Optional semantic retrieval     |
+| RRD/time-series DB       | Historical metrics              |
 
 ### Memory Types
 
-| Type | Description | Example |
-|---|---|---|
-| Device fact | 穩定的 system information | Board name, OpenWrt version |
-| User preference | User-approved preference | Preferred DNS server |
-| Observation | Historical event | WAN disconnected at 03:12 |
-| Diagnostic summary | Prior troubleshooting result | High memory pressure after package install |
-| Policy memory | Approved operational constraints | Never restart Wi-Fi without confirmation |
+| Type               | Description                      | Example                                    |
+|--------------------|----------------------------------|--------------------------------------------|
+| Device fact        | 穩定的 system information        | Board name, OpenWrt version                |
+| User preference    | User-approved preference         | Preferred DNS server                       |
+| Observation        | Historical event                 | WAN disconnected at 03:12                  |
+| Diagnostic summary | Prior troubleshooting result     | High memory pressure after package install |
+| Policy memory      | Approved operational constraints | Never restart Wi-Fi without confirmation   |
 
 ## 5.7 Policy Engine
 
@@ -334,13 +334,13 @@ Policy engine 控制 agent 被允許做什麼。
 
 ### Suggested Policy Levels
 
-| Level | Description |
-|---|---|
-| Observe | 只允許 read-only inspection |
-| Diagnose | Read-only tools plus analysis |
-| Suggest | 可以提出 changes，但不能套用 |
-| Apply with approval | User confirmation 後可以套用 changes |
-| Autonomous maintenance | 可以套用預先定義的 safe actions |
+| Level                  | Description                          |
+|------------------------|--------------------------------------|
+| Observe                | 只允許 read-only inspection          |
+| Diagnose               | Read-only tools plus analysis        |
+| Suggest                | 可以提出 changes，但不能套用          |
+| Apply with approval    | User confirmation 後可以套用 changes |
+| Autonomous maintenance | 可以套用預先定義的 safe actions      |
 
 Default mode 應為 `Observe` 或 `Diagnose`。
 
@@ -560,12 +560,12 @@ PUT  /v1/policy
 
 ### Suggested Resource Profiles
 
-| Device Class | Agent Mode |
-|---|---|
-| 128 MB RAM router | Remote model only, minimal memory |
-| 256-512 MB RAM router | Remote model plus SQLite memory |
-| 1 GB RAM CPE | Local small classifier plus remote reasoning |
-| Raspberry Pi / x86 | Local model server plus full memory features |
+| Device Class          | Agent Mode                                   |
+|-----------------------|----------------------------------------------|
+| 128 MB RAM router     | Remote model only, minimal memory            |
+| 256-512 MB RAM router | Remote model plus SQLite memory              |
+| 1 GB RAM CPE          | Local small classifier plus remote reasoning |
+| Raspberry Pi / x86    | Local model server plus full memory features |
 
 ## 11. OpenWrt Packaging Requirements
 
@@ -673,14 +673,14 @@ MVP 應包含：
 
 ## 15. Engineering Risks
 
-| Risk | Description | Mitigation |
-|---|---|---|
-| Shell command risk | Model may propose unsafe commands | Strict allowlist and policy engine |
-| Low memory | OpenWrt devices may have limited RAM | Use bounded context and optional remote model |
-| Secret leakage | Logs/config may contain credentials | Redaction and local-only mode |
-| Model hallucination | Agent may misinterpret command output | Tool-grounded responses and source tracking |
-| Unstable APIs | Different model servers vary in behavior | OpenAI-compatible abstraction layer |
-| ubus mutation risk | Incorrect ubus call may alter system state | Read-only default and approval gate |
+| Risk                | Description                                | Mitigation                                    |
+|---------------------|--------------------------------------------|-----------------------------------------------|
+| Shell command risk  | Model may propose unsafe commands          | Strict allowlist and policy engine            |
+| Low memory          | OpenWrt devices may have limited RAM       | Use bounded context and optional remote model |
+| Secret leakage      | Logs/config may contain credentials        | Redaction and local-only mode                 |
+| Model hallucination | Agent may misinterpret command output      | Tool-grounded responses and source tracking   |
+| Unstable APIs       | Different model servers vary in behavior   | OpenAI-compatible abstraction layer           |
+| ubus mutation risk  | Incorrect ubus call may alter system state | Read-only default and approval gate           |
 
 ## 16. Recommended Initial Repository Name
 

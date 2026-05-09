@@ -275,13 +275,13 @@ The model router manages communication with multiple AI model API servers.
 
 ### Model Roles
 
-| Role | Purpose | Example Model Type |
-|---|---|---|
-| Classifier | Decide intent and tool safety level | Small local model |
-| Planner | Create multi-step diagnostic plan | Strong local or remote model |
-| Tool Result Analyzer | Analyze command and ubus output | Local or remote model |
-| Summarizer | Compact context and memory | Small local model |
-| Final Responder | Generate user-facing response | Strong model |
+| Role                 | Purpose                             | Example Model Type           |
+|----------------------|-------------------------------------|------------------------------|
+| Classifier           | Decide intent and tool safety level | Small local model            |
+| Planner              | Create multi-step diagnostic plan   | Strong local or remote model |
+| Tool Result Analyzer | Analyze command and ubus output     | Local or remote model        |
+| Summarizer           | Compact context and memory          | Small local model            |
+| Final Responder      | Generate user-facing response       | Strong model                 |
 
 ## 5.6 Local Memory Manager
 
@@ -300,23 +300,23 @@ The memory manager stores persistent local knowledge.
 
 ### Storage Options
 
-| Storage | Use Case |
-|---|---|
-| JSON files | Simple prototype |
-| SQLite | Recommended baseline |
-| SQLite FTS5 | Text search over logs and notes |
-| Lightweight vector index | Optional semantic retrieval |
-| RRD/time-series DB | Historical metrics |
+| Storage                  | Use Case                        |
+|--------------------------|---------------------------------|
+| JSON files               | Simple prototype                |
+| SQLite                   | Recommended baseline            |
+| SQLite FTS5              | Text search over logs and notes |
+| Lightweight vector index | Optional semantic retrieval     |
+| RRD/time-series DB       | Historical metrics              |
 
 ### Memory Types
 
-| Type | Description | Example |
-|---|---|---|
-| Device fact | Stable system information | Board name, OpenWrt version |
-| User preference | User-approved preference | Preferred DNS server |
-| Observation | Historical event | WAN disconnected at 03:12 |
-| Diagnostic summary | Prior troubleshooting result | High memory pressure after package install |
-| Policy memory | Approved operational constraints | Never restart Wi-Fi without confirmation |
+| Type               | Description                      | Example                                    |
+|--------------------|----------------------------------|--------------------------------------------|
+| Device fact        | Stable system information        | Board name, OpenWrt version                |
+| User preference    | User-approved preference         | Preferred DNS server                       |
+| Observation        | Historical event                 | WAN disconnected at 03:12                  |
+| Diagnostic summary | Prior troubleshooting result     | High memory pressure after package install |
+| Policy memory      | Approved operational constraints | Never restart Wi-Fi without confirmation   |
 
 ## 5.7 Policy Engine
 
@@ -334,13 +334,13 @@ The policy engine controls what the agent is allowed to do.
 
 ### Suggested Policy Levels
 
-| Level | Description |
-|---|---|
-| Observe | Read-only inspection only |
-| Diagnose | Read-only tools plus analysis |
-| Suggest | Can propose changes but not apply them |
-| Apply with approval | Can apply changes after user confirmation |
-| Autonomous maintenance | Can apply predefined safe actions |
+| Level                  | Description                               |
+|------------------------|-------------------------------------------|
+| Observe                | Read-only inspection only                 |
+| Diagnose               | Read-only tools plus analysis             |
+| Suggest                | Can propose changes but not apply them    |
+| Apply with approval    | Can apply changes after user confirmation |
+| Autonomous maintenance | Can apply predefined safe actions         |
 
 The default mode should be `Observe` or `Diagnose`.
 
@@ -560,12 +560,12 @@ PUT  /v1/policy
 
 ### Suggested Resource Profiles
 
-| Device Class | Agent Mode |
-|---|---|
-| 128 MB RAM router | Remote model only, minimal memory |
-| 256-512 MB RAM router | Remote model plus SQLite memory |
-| 1 GB RAM CPE | Local small classifier plus remote reasoning |
-| Raspberry Pi / x86 | Local model server plus full memory features |
+| Device Class          | Agent Mode                                   |
+|-----------------------|----------------------------------------------|
+| 128 MB RAM router     | Remote model only, minimal memory            |
+| 256-512 MB RAM router | Remote model plus SQLite memory              |
+| 1 GB RAM CPE          | Local small classifier plus remote reasoning |
+| Raspberry Pi / x86    | Local model server plus full memory features |
 
 ## 11. OpenWrt Packaging Requirements
 
@@ -673,14 +673,14 @@ The MVP should include:
 
 ## 15. Engineering Risks
 
-| Risk | Description | Mitigation |
-|---|---|---|
-| Shell command risk | Model may propose unsafe commands | Strict allowlist and policy engine |
-| Low memory | OpenWrt devices may have limited RAM | Use bounded context and optional remote model |
-| Secret leakage | Logs/config may contain credentials | Redaction and local-only mode |
-| Model hallucination | Agent may misinterpret command output | Tool-grounded responses and source tracking |
-| Unstable APIs | Different model servers vary in behavior | OpenAI-compatible abstraction layer |
-| ubus mutation risk | Incorrect ubus call may alter system state | Read-only default and approval gate |
+| Risk                | Description                                | Mitigation                                    |
+|---------------------|--------------------------------------------|-----------------------------------------------|
+| Shell command risk  | Model may propose unsafe commands          | Strict allowlist and policy engine            |
+| Low memory          | OpenWrt devices may have limited RAM       | Use bounded context and optional remote model |
+| Secret leakage      | Logs/config may contain credentials        | Redaction and local-only mode                 |
+| Model hallucination | Agent may misinterpret command output      | Tool-grounded responses and source tracking   |
+| Unstable APIs       | Different model servers vary in behavior   | OpenAI-compatible abstraction layer           |
+| ubus mutation risk  | Incorrect ubus call may alter system state | Read-only default and approval gate           |
 
 ## 16. Recommended Initial Repository Name
 

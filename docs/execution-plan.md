@@ -14,10 +14,11 @@ The project has completed the first MVP path on OpenWrt One:
 - [x] Local OpenWrt buildroot validation for `.apk` package output.
 - [x] OpenWrt One install verification with `apk add --allow-untrusted`.
 - [x] SQLite-backed raw sample storage under `/tmp/edgepulse/edgepulse.db`.
-- [x] On-demand feature windows and CSV export for training rows.
+- [x] Stored feature windows with mean, min, max, standard deviation, delta, rate, and coefficient of variation.
+- [x] CSV export for training rows backed by stored feature rows.
 - [x] LuCI overview, metrics, features, and settings pages packaged and installed.
 
-The next implementation focus is to harden the MVP: add stored feature tables, richer OpenWrt-specific collectors, retention cleanup, and a narrower RPC interface for LuCI.
+The next implementation focus is to harden the MVP: add richer OpenWrt-specific collectors, retention cleanup, and a narrower RPC interface for LuCI.
 
 ## Goal
 
@@ -121,7 +122,7 @@ Todo:
 - [x] Write raw samples into SQLite instead of only `edgepulse.json`.
 - [x] Read daemon interval from UCI through the init script.
 - [x] Record per-collector status so one failed collector does not fail the whole sample.
-- [ ] Add fixture-based tests for parsing `/proc` and `/sys` files.
+- [x] Add fixture-based tests for parsing `/proc` and `/sys` files.
 
 Exit criteria:
 
@@ -131,22 +132,23 @@ Exit criteria:
 
 ## Phase 3: OpenWrt-Specific Collectors
 
-Status: on-demand MVP complete
+Status: partial
 
 Add OpenWrt integration:
 
 - [ ] `ubus` system board information.
 - [ ] `ubus` network interface status.
 - [ ] Wireless status through `ubus`/`iwinfo` where available.
-- [ ] Conntrack count from `/proc/sys/net/netfilter/nf_conntrack_count`.
+- [x] Conntrack count from `/proc/sys/net/netfilter/nf_conntrack_count`.
 - [ ] nftables/counter support as optional later work.
 
 Todo:
 
 - [ ] Add a small OpenWrt integration layer around `libubus`.
-- [ ] Store board metadata with raw samples or a device metadata table.
+- [x] Store basic device metadata in a device metadata table.
 - [ ] Map physical interface counters to logical OpenWrt interfaces.
-- [ ] Treat missing wireless or conntrack sources as unavailable, not fatal.
+- [x] Treat missing conntrack sources as unavailable, not fatal.
+- [ ] Treat missing wireless sources as unavailable, not fatal.
 
 Exit criteria:
 
@@ -156,17 +158,17 @@ Exit criteria:
 
 ## Phase 4: Feature Windows
 
-Status: not started
+Status: mostly complete
 
 Compute periodic features from raw samples:
 
 - [x] mean
 - [x] min
 - [x] max
-- [ ] standard deviation
-- [ ] delta
-- [ ] rate per second
-- [ ] coefficient of variation
+- [x] standard deviation
+- [x] delta
+- [x] rate per second
+- [x] coefficient of variation
 
 Initial windows:
 
@@ -176,10 +178,10 @@ Initial windows:
 
 Todo:
 
-- [ ] Define the feature table schema.
+- [x] Define the feature table schema.
 - [x] Add feature-window computation over SQLite raw samples.
 - [x] Add `edgepulse-ctl features --json --window 60` implementation.
-- [ ] Add unit tests for feature calculations.
+- [x] Add unit tests for feature calculations.
 
 Exit criteria:
 
@@ -207,7 +209,7 @@ luci-app-edgepulse/
 Views:
 
 - [x] Overview: initial health snapshot, load, memory, and uptime.
-- [ ] Overview: latest CPU, thermal, network, and collector status.
+- [x] Overview: latest CPU, thermal, network, and collector status.
 - [x] Metrics: latest raw metrics table.
 - [x] Features: derived windows prepared for training data.
 - [x] Settings: UCI-backed sampling interval, retention, enabled collectors, and database path.
@@ -221,7 +223,7 @@ Todo:
 - [x] Add `features.js`.
 - [x] Add `settings.js`.
 - [ ] Replace direct command execution with a narrower RPC endpoint when the data model stabilizes.
-- [ ] Verify LuCI page rendering in a browser on OpenWrt One.
+- [x] Verify LuCI page rendering in a browser on OpenWrt One.
 
 Exit criteria:
 

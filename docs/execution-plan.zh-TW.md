@@ -14,10 +14,11 @@ Review 日期：2026-05-09
 - [x] 本地 OpenWrt buildroot 驗證 `.apk` package 輸出。
 - [x] 在 OpenWrt One 上用 `apk add --allow-untrusted` 完成安裝驗證。
 - [x] SQLite-backed raw sample storage，資料寫入 `/tmp/edgepulse/edgepulse.db`。
-- [x] On-demand feature windows 與 training rows CSV export。
+- [x] Stored feature windows，包含 mean、min、max、standard deviation、delta、rate 與 coefficient of variation。
+- [x] 以 stored feature rows 為基礎的 training rows CSV export。
 - [x] LuCI overview、metrics、features 與 settings pages 已完成 package 與安裝驗證。
 
-下一段實作重點是強化 MVP：加入 stored feature tables、更完整的 OpenWrt-specific collectors、retention cleanup，以及給 LuCI 使用的更窄 RPC interface。
+下一段實作重點是強化 MVP：加入更完整的 OpenWrt-specific collectors、retention cleanup，以及給 LuCI 使用的更窄 RPC interface。
 
 ## 目標
 
@@ -121,7 +122,7 @@ Todo:
 - [x] 將 raw samples 寫入 SQLite，而不只是 `edgepulse.json`。
 - [x] 透過 init script 從 UCI 讀取 daemon interval。
 - [x] 記錄 per-collector status，讓單一 collector 失敗不會導致整次 sample 失敗。
-- [ ] 加入 fixture-based tests，測試 `/proc` 與 `/sys` file parsing。
+- [x] 加入 fixture-based tests，測試 `/proc` 與 `/sys` file parsing。
 
 Exit criteria:
 
@@ -131,22 +132,23 @@ Exit criteria:
 
 ## Phase 3: OpenWrt-Specific Collectors
 
-Status: on-demand MVP complete
+Status: partial
 
 加入 OpenWrt integration：
 
 - [ ] `ubus` system board information。
 - [ ] `ubus` network interface status。
 - [ ] 透過可用的 `ubus`/`iwinfo` 取得 wireless status。
-- [ ] 從 `/proc/sys/net/netfilter/nf_conntrack_count` 取得 conntrack count。
+- [x] 從 `/proc/sys/net/netfilter/nf_conntrack_count` 取得 conntrack count。
 - [ ] nftables/counter support 作為後續 optional work。
 
 Todo:
 
 - [ ] 加入圍繞 `libubus` 的小型 OpenWrt integration layer。
-- [ ] 將 board metadata 與 raw samples 一起儲存，或建立 device metadata table。
+- [x] 將基本 device metadata 儲存在 device metadata table。
 - [ ] 將 physical interface counters 對應到 OpenWrt logical interfaces。
-- [ ] 將缺少 wireless 或 conntrack sources 視為 unavailable，而不是 fatal。
+- [x] 將缺少 conntrack source 視為 unavailable，而不是 fatal。
+- [ ] 將缺少 wireless source 視為 unavailable，而不是 fatal。
 
 Exit criteria:
 
@@ -156,17 +158,17 @@ Exit criteria:
 
 ## Phase 4: Feature Windows
 
-Status: not started
+Status: mostly complete
 
 從 raw samples 計算週期性 features：
 
 - [x] mean
 - [x] min
 - [x] max
-- [ ] standard deviation
-- [ ] delta
-- [ ] rate per second
-- [ ] coefficient of variation
+- [x] standard deviation
+- [x] delta
+- [x] rate per second
+- [x] coefficient of variation
 
 Initial windows:
 
@@ -176,10 +178,10 @@ Initial windows:
 
 Todo:
 
-- [ ] 定義 feature table schema。
+- [x] 定義 feature table schema。
 - [x] 加入針對 SQLite raw samples 的 feature-window computation。
 - [x] 實作 `edgepulse-ctl features --json --window 60`。
-- [ ] 加入 feature calculation 的 unit tests。
+- [x] 加入 feature calculation 的 unit tests。
 
 Exit criteria:
 
@@ -207,7 +209,7 @@ luci-app-edgepulse/
 Views:
 
 - [x] Overview：初版 health snapshot、load、memory 與 uptime。
-- [ ] Overview：latest CPU、thermal、network 與 collector status。
+- [x] Overview：latest CPU、thermal、network 與 collector status。
 - [x] Metrics：latest raw metrics table。
 - [x] Features：為 training data 準備的 derived windows。
 - [x] Settings：UCI-backed sampling interval、retention、enabled collectors 與 database path。
@@ -221,7 +223,7 @@ Todo:
 - [x] 加入 `features.js`。
 - [x] 加入 `settings.js`。
 - [ ] 等 data model 穩定後，以更窄的 RPC endpoint 取代 direct command execution。
-- [ ] 在 OpenWrt One 上用瀏覽器驗證 LuCI page rendering。
+- [x] 在 OpenWrt One 上用瀏覽器驗證 LuCI page rendering。
 
 Exit criteria:
 

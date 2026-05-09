@@ -163,15 +163,20 @@ static int parse_window_arg(int argc, char **argv, int *window_sec)
 static int print_features(int window_sec)
 {
 	static const char *sql =
-		"SELECT metric, labels, count(*), avg(value), min(value), max(value) "
-		"FROM raw_samples "
-		"WHERE status = 'ok' AND timestamp >= strftime('%s','now') - ? "
-		"GROUP BY metric, labels "
+		"SELECT metric, labels, count, mean, min, max, stddev, delta, "
+		"       rate_per_sec, coefficient_of_variation, window_start, window_end "
+		"FROM feature_rows "
+		"WHERE window_sec = ? "
+		"  AND window_end = (SELECT max(window_end) FROM feature_rows WHERE window_sec = ?) "
 		"ORDER BY metric, labels;";
 	sqlite3 *db = NULL;
 	sqlite3_stmt *stmt = NULL;
 	int first = 1;
 	int rc;
+	time_t window_end = time(NULL);
+	time_t window_start = window_end - window_sec;
+
+	edgepulse_store_feature_window(EDGEPULSE_DB_PATH, window_sec);
 
 	if (sqlite3_open(EDGEPULSE_DB_PATH, &db) != SQLITE_OK)
 		goto unavailable;
@@ -179,24 +184,31 @@ static int print_features(int window_sec)
 		goto unavailable;
 
 	sqlite3_bind_int(stmt, 1, window_sec);
+	sqlite3_bind_int(stmt, 2, window_sec);
 
 	printf("{\n");
 	printf("  \"window_sec\": %d,\n", window_sec);
-	printf("  \"window_start\": %lld,\n", (long long)(time(NULL) - window_sec));
-	printf("  \"window_end\": %lld,\n", (long long)time(NULL));
+	printf("  \"window_start\": %lld,\n", (long long)window_start);
+	printf("  \"window_end\": %lld,\n", (long long)window_end);
 	printf("  \"features\": [\n");
 
 	while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
 		if (!first)
 			printf(",\n");
 		first = 0;
-		printf("    { \"metric\": \"%s\", \"labels\": \"%s\", \"count\": %d, \"mean\": %.6f, \"min\": %.6f, \"max\": %.6f }",
+		printf("    { \"metric\": \"%s\", \"labels\": \"%s\", \"count\": %d, \"mean\": %.6f, \"min\": %.6f, \"max\": %.6f, \"stddev\": %.6f, \"delta\": %.6f, \"rate_per_sec\": %.6f, \"coefficient_of_variation\": %.6f, \"window_start\": %lld, \"window_end\": %lld }",
 		       sqlite3_column_text(stmt, 0),
 		       sqlite3_column_text(stmt, 1),
 		       sqlite3_column_int(stmt, 2),
 		       sqlite3_column_double(stmt, 3),
 		       sqlite3_column_double(stmt, 4),
-		       sqlite3_column_double(stmt, 5));
+		       sqlite3_column_double(stmt, 5),
+		       sqlite3_column_double(stmt, 6),
+		       sqlite3_column_double(stmt, 7),
+		       sqlite3_column_double(stmt, 8),
+		       sqlite3_column_double(stmt, 9),
+		       sqlite3_column_int64(stmt, 10),
+		       sqlite3_column_int64(stmt, 11));
 	}
 
 	printf("\n");
@@ -223,23 +235,24 @@ unavailable:
 static int print_export(int window_sec)
 {
 	static const char *sql =
-		"SELECT metric, labels, count(*), avg(value), min(value), max(value) "
-		"FROM raw_samples "
-		"WHERE status = 'ok' AND timestamp >= strftime('%s','now') - ? "
-		"GROUP BY metric, labels "
+		"SELECT metric, labels, count, mean, min, max, stddev, delta, "
+		"       rate_per_sec, coefficient_of_variation, window_start, window_end "
+		"FROM feature_rows "
+		"WHERE window_sec = ? "
+		"  AND window_end = (SELECT max(window_end) FROM feature_rows WHERE window_sec = ?) "
 		"ORDER BY metric, labels;";
 	sqlite3 *db = NULL;
 	sqlite3_stmt *stmt = NULL;
 	char hostname[128] = "local";
-	time_t window_end = time(NULL);
-	time_t window_start = window_end - window_sec;
 	int rc;
+
+	edgepulse_store_feature_window(EDGEPULSE_DB_PATH, window_sec);
 
 	if (gethostname(hostname, sizeof(hostname)) != 0 || hostname[0] == '\0')
 		snprintf(hostname, sizeof(hostname), "local");
 	hostname[sizeof(hostname) - 1] = '\0';
 
-	printf("device_id,window_sec,window_start,window_end,metric,labels,count,mean,min,max\n");
+	printf("device_id,window_sec,window_start,window_end,metric,labels,count,mean,min,max,stddev,delta,rate_per_sec,coefficient_of_variation\n");
 
 	if (sqlite3_open(EDGEPULSE_DB_PATH, &db) != SQLITE_OK)
 		return 1;
@@ -249,19 +262,24 @@ static int print_export(int window_sec)
 	}
 
 	sqlite3_bind_int(stmt, 1, window_sec);
+	sqlite3_bind_int(stmt, 2, window_sec);
 
 	while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
-		printf("%s,%d,%lld,%lld,%s,%s,%d,%.6f,%.6f,%.6f\n",
+		printf("%s,%d,%lld,%lld,%s,%s,%d,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f\n",
 		       hostname,
 		       window_sec,
-		       (long long)window_start,
-		       (long long)window_end,
+		       sqlite3_column_int64(stmt, 10),
+		       sqlite3_column_int64(stmt, 11),
 		       sqlite3_column_text(stmt, 0),
 		       sqlite3_column_text(stmt, 1),
 		       sqlite3_column_int(stmt, 2),
 		       sqlite3_column_double(stmt, 3),
 		       sqlite3_column_double(stmt, 4),
-		       sqlite3_column_double(stmt, 5));
+		       sqlite3_column_double(stmt, 5),
+		       sqlite3_column_double(stmt, 6),
+		       sqlite3_column_double(stmt, 7),
+		       sqlite3_column_double(stmt, 8),
+		       sqlite3_column_double(stmt, 9));
 	}
 
 	sqlite3_finalize(stmt);

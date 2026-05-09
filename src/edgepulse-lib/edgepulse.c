@@ -2,10 +2,12 @@
 
 #include <errno.h>
 #include <limits.h>
+#include <math.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <time.h>
+#include <unistd.h>
 
 #include <sqlite3.h>
 
@@ -62,25 +64,32 @@ static int parse_meminfo_line(const char *line, const char *key, unsigned long *
 	return -1;
 }
 
-static int read_meminfo(struct edgepulse_snapshot *snapshot)
+int edgepulse_parse_meminfo_stream(FILE *fp, struct edgepulse_snapshot *snapshot)
 {
 	char line[256];
-	FILE *fp = fopen("/proc/meminfo", "r");
-
-	if (!fp)
-		return -1;
 
 	while (fgets(line, sizeof(line), fp)) {
 		if (parse_meminfo_line(line, "MemTotal", &snapshot->mem_total_kb) < 0 ||
 		    parse_meminfo_line(line, "MemAvailable", &snapshot->mem_available_kb) < 0 ||
 		    parse_meminfo_line(line, "MemFree", &snapshot->mem_free_kb) < 0) {
-			fclose(fp);
 			return -1;
 		}
 	}
 
-	fclose(fp);
 	return snapshot->mem_total_kb > 0 ? 0 : -1;
+}
+
+static int read_meminfo(struct edgepulse_snapshot *snapshot)
+{
+	int rc;
+	FILE *fp = fopen("/proc/meminfo", "r");
+
+	if (!fp)
+		return -1;
+
+	rc = edgepulse_parse_meminfo_stream(fp, snapshot);
+	fclose(fp);
+	return rc;
 }
 
 int edgepulse_collect_snapshot(struct edgepulse_snapshot *snapshot)
@@ -130,23 +139,15 @@ static int add_snapshot_samples(struct edgepulse_sample_batch *batch,
 	return 0;
 }
 
-static int collect_cpu_samples(struct edgepulse_sample_batch *batch)
+int edgepulse_parse_proc_stat_stream(FILE *fp, struct edgepulse_sample_batch *batch)
 {
 	char cpu[32];
 	unsigned long long user, nice, system, idle, iowait, irq, softirq, steal;
-	FILE *fp = fopen("/proc/stat", "r");
-
-	if (!fp)
-		return -1;
 
 	if (fscanf(fp, "%31s %llu %llu %llu %llu %llu %llu %llu %llu",
 		   cpu, &user, &nice, &system, &idle, &iowait, &irq, &softirq,
-		   &steal) != 9) {
-		fclose(fp);
+		   &steal) != 9)
 		return -1;
-	}
-
-	fclose(fp);
 
 	if (strcmp(cpu, "cpu") != 0)
 		return -1;
@@ -164,6 +165,19 @@ static int collect_cpu_samples(struct edgepulse_sample_batch *batch)
 	return 0;
 }
 
+static int collect_cpu_samples(struct edgepulse_sample_batch *batch)
+{
+	int rc;
+	FILE *fp = fopen("/proc/stat", "r");
+
+	if (!fp)
+		return -1;
+
+	rc = edgepulse_parse_proc_stat_stream(fp, batch);
+	fclose(fp);
+	return rc;
+}
+
 static void trim_trailing_colon(char *value)
 {
 	size_t len = strlen(value);
@@ -172,19 +186,13 @@ static void trim_trailing_colon(char *value)
 		value[len - 1] = '\0';
 }
 
-static int collect_network_samples(struct edgepulse_sample_batch *batch)
+int edgepulse_parse_net_dev_stream(FILE *fp, struct edgepulse_sample_batch *batch)
 {
 	char line[512];
-	FILE *fp = fopen("/proc/net/dev", "r");
-
-	if (!fp)
-		return -1;
 
 	/* Skip headers. */
-	if (!fgets(line, sizeof(line), fp) || !fgets(line, sizeof(line), fp)) {
-		fclose(fp);
+	if (!fgets(line, sizeof(line), fp) || !fgets(line, sizeof(line), fp))
 		return -1;
-	}
 
 	while (fgets(line, sizeof(line), fp)) {
 		char iface[64];
@@ -206,14 +214,24 @@ static int collect_network_samples(struct edgepulse_sample_batch *batch)
 		if (add_sample(batch, "network.rx_bytes", labels, (double)rx_bytes, "ok") != 0 ||
 		    add_sample(batch, "network.rx_packets", labels, (double)rx_packets, "ok") != 0 ||
 		    add_sample(batch, "network.tx_bytes", labels, (double)tx_bytes, "ok") != 0 ||
-		    add_sample(batch, "network.tx_packets", labels, (double)tx_packets, "ok") != 0) {
-			fclose(fp);
+		    add_sample(batch, "network.tx_packets", labels, (double)tx_packets, "ok") != 0)
 			return -1;
-		}
 	}
 
-	fclose(fp);
 	return 0;
+}
+
+static int collect_network_samples(struct edgepulse_sample_batch *batch)
+{
+	int rc;
+	FILE *fp = fopen("/proc/net/dev", "r");
+
+	if (!fp)
+		return -1;
+
+	rc = edgepulse_parse_net_dev_stream(fp, batch);
+	fclose(fp);
+	return rc;
 }
 
 static int collect_thermal_samples(struct edgepulse_sample_batch *batch)
@@ -247,6 +265,23 @@ static int collect_thermal_samples(struct edgepulse_sample_batch *batch)
 	return found > 0 ? 0 : -1;
 }
 
+static int collect_conntrack_samples(struct edgepulse_sample_batch *batch)
+{
+	unsigned long count;
+	FILE *fp = fopen("/proc/sys/net/netfilter/nf_conntrack_count", "r");
+
+	if (!fp)
+		return -1;
+
+	if (fscanf(fp, "%lu", &count) != 1) {
+		fclose(fp);
+		return -1;
+	}
+
+	fclose(fp);
+	return add_sample(batch, "network.conntrack_count", "", (double)count, "ok");
+}
+
 int edgepulse_collect_sample_batch(struct edgepulse_sample_batch *batch)
 {
 	struct edgepulse_snapshot snapshot;
@@ -265,6 +300,8 @@ int edgepulse_collect_sample_batch(struct edgepulse_sample_batch *batch)
 		add_sample(batch, "collector.network", "", 0.0, "error");
 	if (collect_thermal_samples(batch) != 0)
 		add_sample(batch, "collector.thermal", "", 0.0, "unavailable");
+	if (collect_conntrack_samples(batch) != 0)
+		add_sample(batch, "collector.conntrack", "", 0.0, "unavailable");
 
 	return batch->count > 0 ? 0 : -1;
 }
@@ -328,7 +365,30 @@ int edgepulse_init_database(const char *db_path)
 		"  status TEXT NOT NULL DEFAULT 'ok'"
 		");"
 		"CREATE INDEX IF NOT EXISTS idx_raw_samples_metric_time "
-		"ON raw_samples(metric, labels, timestamp);";
+		"ON raw_samples(metric, labels, timestamp);"
+		"CREATE TABLE IF NOT EXISTS feature_rows ("
+		"  id INTEGER PRIMARY KEY AUTOINCREMENT,"
+		"  window_sec INTEGER NOT NULL,"
+		"  window_start INTEGER NOT NULL,"
+		"  window_end INTEGER NOT NULL,"
+		"  metric TEXT NOT NULL,"
+		"  labels TEXT NOT NULL DEFAULT '',"
+		"  count INTEGER NOT NULL,"
+		"  mean REAL NOT NULL,"
+		"  min REAL NOT NULL,"
+		"  max REAL NOT NULL,"
+		"  stddev REAL NOT NULL,"
+		"  delta REAL NOT NULL,"
+		"  rate_per_sec REAL NOT NULL,"
+		"  coefficient_of_variation REAL NOT NULL"
+		");"
+		"CREATE UNIQUE INDEX IF NOT EXISTS idx_feature_rows_unique "
+		"ON feature_rows(window_sec, window_start, window_end, metric, labels);"
+		"CREATE TABLE IF NOT EXISTS device_metadata ("
+		"  key TEXT PRIMARY KEY,"
+		"  value TEXT NOT NULL,"
+		"  updated_at INTEGER NOT NULL"
+		");";
 	sqlite3 *db = NULL;
 	char *errmsg = NULL;
 	int rc;
@@ -344,10 +404,184 @@ int edgepulse_init_database(const char *db_path)
 	}
 
 	rc = sqlite3_exec(db, schema, NULL, NULL, &errmsg);
+	if (rc == SQLITE_OK) {
+		char hostname[128] = "local";
+		sqlite3_stmt *stmt = NULL;
+
+		if (gethostname(hostname, sizeof(hostname)) != 0 || hostname[0] == '\0')
+			snprintf(hostname, sizeof(hostname), "%s", "local");
+		hostname[sizeof(hostname) - 1] = '\0';
+
+		if (sqlite3_prepare_v2(db,
+				       "INSERT INTO device_metadata(key, value, updated_at) "
+				       "VALUES('hostname', ?, strftime('%s','now')) "
+				       "ON CONFLICT(key) DO UPDATE SET "
+				       "value=excluded.value, updated_at=excluded.updated_at;",
+				       -1, &stmt, NULL) == SQLITE_OK) {
+			sqlite3_bind_text(stmt, 1, hostname, -1, SQLITE_TRANSIENT);
+			if (sqlite3_step(stmt) != SQLITE_DONE)
+				rc = SQLITE_ERROR;
+			sqlite3_finalize(stmt);
+		} else {
+			rc = SQLITE_ERROR;
+		}
+	}
 	if (errmsg)
 		sqlite3_free(errmsg);
 	sqlite3_close(db);
 	return rc == SQLITE_OK ? 0 : -1;
+}
+
+static void compute_feature_math(struct edgepulse_feature *feature,
+				 double avg_square, double first_value,
+				 double last_value, time_t first_ts,
+				 time_t last_ts)
+{
+	double variance = avg_square - (feature->mean * feature->mean);
+	double elapsed = difftime(last_ts, first_ts);
+
+	if (variance < 0.0 && variance > -0.000001)
+		variance = 0.0;
+
+	feature->stddev = variance > 0.0 ? sqrt(variance) : 0.0;
+	feature->delta = last_value - first_value;
+	feature->rate_per_sec = elapsed > 0.0 ? feature->delta / elapsed : 0.0;
+	feature->coefficient_of_variation =
+		feature->mean != 0.0 ? feature->stddev / fabs(feature->mean) : 0.0;
+}
+
+int edgepulse_store_feature_window(const char *db_path, int window_sec)
+{
+	static const char *select_sql =
+		"WITH grouped AS ("
+		"  SELECT metric, labels, count(*) AS sample_count, avg(value) AS mean_value,"
+		"         min(value) AS min_value, max(value) AS max_value,"
+		"         avg(value * value) AS avg_square,"
+		"         min(timestamp) AS first_ts, max(timestamp) AS last_ts "
+		"  FROM raw_samples "
+		"  WHERE status = 'ok' AND timestamp >= ? AND timestamp <= ? "
+		"  GROUP BY metric, labels"
+		") "
+		"SELECT g.metric, g.labels, g.sample_count, g.mean_value, g.min_value,"
+		"       g.max_value, g.avg_square, g.first_ts, g.last_ts,"
+		"       (SELECT value FROM raw_samples r "
+		"        WHERE r.status = 'ok' AND r.metric = g.metric AND r.labels = g.labels "
+		"          AND r.timestamp >= ? AND r.timestamp <= ? "
+		"        ORDER BY r.timestamp ASC, r.id ASC LIMIT 1) AS first_value,"
+		"       (SELECT value FROM raw_samples r "
+		"        WHERE r.status = 'ok' AND r.metric = g.metric AND r.labels = g.labels "
+		"          AND r.timestamp >= ? AND r.timestamp <= ? "
+		"        ORDER BY r.timestamp DESC, r.id DESC LIMIT 1) AS last_value "
+		"FROM grouped g ORDER BY g.metric, g.labels;";
+	static const char *insert_sql =
+		"INSERT INTO feature_rows("
+		"  window_sec, window_start, window_end, metric, labels, count,"
+		"  mean, min, max, stddev, delta, rate_per_sec, coefficient_of_variation"
+		") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+		"ON CONFLICT(window_sec, window_start, window_end, metric, labels) "
+		"DO UPDATE SET "
+		"  count=excluded.count, mean=excluded.mean, min=excluded.min,"
+		"  max=excluded.max, stddev=excluded.stddev, delta=excluded.delta,"
+		"  rate_per_sec=excluded.rate_per_sec,"
+		"  coefficient_of_variation=excluded.coefficient_of_variation;";
+	sqlite3 *db = NULL;
+	sqlite3_stmt *select_stmt = NULL;
+	sqlite3_stmt *insert_stmt = NULL;
+	time_t window_end = time(NULL);
+	time_t window_start = window_end - window_sec;
+	int rc;
+
+	if (window_sec <= 0)
+		return -1;
+	if (edgepulse_init_database(db_path) != 0)
+		return -1;
+	if (sqlite3_open(db_path, &db) != SQLITE_OK)
+		goto fail;
+	if (sqlite3_exec(db, "BEGIN IMMEDIATE;", NULL, NULL, NULL) != SQLITE_OK)
+		goto fail;
+	if (sqlite3_prepare_v2(db, select_sql, -1, &select_stmt, NULL) != SQLITE_OK)
+		goto fail;
+	if (sqlite3_prepare_v2(db, insert_sql, -1, &insert_stmt, NULL) != SQLITE_OK)
+		goto fail;
+
+	sqlite3_bind_int64(select_stmt, 1, (sqlite3_int64)window_start);
+	sqlite3_bind_int64(select_stmt, 2, (sqlite3_int64)window_end);
+	sqlite3_bind_int64(select_stmt, 3, (sqlite3_int64)window_start);
+	sqlite3_bind_int64(select_stmt, 4, (sqlite3_int64)window_end);
+	sqlite3_bind_int64(select_stmt, 5, (sqlite3_int64)window_start);
+	sqlite3_bind_int64(select_stmt, 6, (sqlite3_int64)window_end);
+
+	while ((rc = sqlite3_step(select_stmt)) == SQLITE_ROW) {
+		struct edgepulse_feature feature;
+		double avg_square = sqlite3_column_double(select_stmt, 6);
+		time_t first_ts = (time_t)sqlite3_column_int64(select_stmt, 7);
+		time_t last_ts = (time_t)sqlite3_column_int64(select_stmt, 8);
+		double first_value = sqlite3_column_double(select_stmt, 9);
+		double last_value = sqlite3_column_double(select_stmt, 10);
+
+		memset(&feature, 0, sizeof(feature));
+		snprintf(feature.metric, sizeof(feature.metric), "%s",
+			 sqlite3_column_text(select_stmt, 0));
+		snprintf(feature.labels, sizeof(feature.labels), "%s",
+			 sqlite3_column_text(select_stmt, 1));
+		feature.window_sec = window_sec;
+		feature.window_start = window_start;
+		feature.window_end = window_end;
+		feature.count = sqlite3_column_int(select_stmt, 2);
+		feature.mean = sqlite3_column_double(select_stmt, 3);
+		feature.min = sqlite3_column_double(select_stmt, 4);
+		feature.max = sqlite3_column_double(select_stmt, 5);
+		compute_feature_math(&feature, avg_square, first_value, last_value,
+				     first_ts, last_ts);
+
+		sqlite3_bind_int(insert_stmt, 1, feature.window_sec);
+		sqlite3_bind_int64(insert_stmt, 2, (sqlite3_int64)feature.window_start);
+		sqlite3_bind_int64(insert_stmt, 3, (sqlite3_int64)feature.window_end);
+		sqlite3_bind_text(insert_stmt, 4, feature.metric, -1, SQLITE_STATIC);
+		sqlite3_bind_text(insert_stmt, 5, feature.labels, -1, SQLITE_STATIC);
+		sqlite3_bind_int(insert_stmt, 6, feature.count);
+		sqlite3_bind_double(insert_stmt, 7, feature.mean);
+		sqlite3_bind_double(insert_stmt, 8, feature.min);
+		sqlite3_bind_double(insert_stmt, 9, feature.max);
+		sqlite3_bind_double(insert_stmt, 10, feature.stddev);
+		sqlite3_bind_double(insert_stmt, 11, feature.delta);
+		sqlite3_bind_double(insert_stmt, 12, feature.rate_per_sec);
+		sqlite3_bind_double(insert_stmt, 13, feature.coefficient_of_variation);
+
+		if (sqlite3_step(insert_stmt) != SQLITE_DONE)
+			goto fail;
+		sqlite3_reset(insert_stmt);
+		sqlite3_clear_bindings(insert_stmt);
+	}
+
+	if (rc != SQLITE_DONE)
+		goto fail;
+	if (sqlite3_finalize(select_stmt) != SQLITE_OK) {
+		select_stmt = NULL;
+		goto fail;
+	}
+	select_stmt = NULL;
+	if (sqlite3_finalize(insert_stmt) != SQLITE_OK) {
+		insert_stmt = NULL;
+		goto fail;
+	}
+	insert_stmt = NULL;
+	if (sqlite3_exec(db, "COMMIT;", NULL, NULL, NULL) != SQLITE_OK)
+		goto fail;
+
+	sqlite3_close(db);
+	return 0;
+
+fail:
+	if (select_stmt)
+		sqlite3_finalize(select_stmt);
+	if (insert_stmt)
+		sqlite3_finalize(insert_stmt);
+	if (db) {
+		sqlite3_exec(db, "ROLLBACK;", NULL, NULL, NULL);
+		sqlite3_close(db);
+	}
+	return -1;
 }
 
 int edgepulse_write_sample_batch(const char *db_path,
@@ -438,6 +672,7 @@ int edgepulse_write_status_file(void)
 int edgepulse_write_status_outputs(const char *db_path)
 {
 	struct edgepulse_sample_batch batch;
+	static const int feature_windows[] = { 60, 300, 900 };
 
 	if (edgepulse_write_status_file() != 0)
 		return -1;
@@ -445,6 +680,9 @@ int edgepulse_write_status_outputs(const char *db_path)
 		return -1;
 	if (edgepulse_write_sample_batch(db_path, &batch) != 0)
 		return -1;
+
+	for (size_t i = 0; i < sizeof(feature_windows) / sizeof(feature_windows[0]); i++)
+		edgepulse_store_feature_window(db_path, feature_windows[i]);
 
 	return 0;
 }

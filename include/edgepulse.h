@@ -34,13 +34,33 @@ struct edgepulse_sample_batch {
 	size_t count;
 };
 
+struct edgepulse_feature {
+	char metric[64];
+	char labels[128];
+	int window_sec;
+	time_t window_start;
+	time_t window_end;
+	int count;
+	double mean;
+	double min;
+	double max;
+	double stddev;
+	double delta;
+	double rate_per_sec;
+	double coefficient_of_variation;
+};
+
 int edgepulse_collect_snapshot(struct edgepulse_snapshot *snapshot);
 int edgepulse_collect_sample_batch(struct edgepulse_sample_batch *batch);
 int edgepulse_init_database(const char *db_path);
 int edgepulse_write_sample_batch(const char *db_path,
 				 const struct edgepulse_sample_batch *batch);
+int edgepulse_store_feature_window(const char *db_path, int window_sec);
 int edgepulse_ensure_state_dir(void);
 int edgepulse_parse_positive_int(const char *value, int *parsed);
+int edgepulse_parse_meminfo_stream(FILE *fp, struct edgepulse_snapshot *snapshot);
+int edgepulse_parse_proc_stat_stream(FILE *fp, struct edgepulse_sample_batch *batch);
+int edgepulse_parse_net_dev_stream(FILE *fp, struct edgepulse_sample_batch *batch);
 int edgepulse_write_status_file(void);
 int edgepulse_write_status_outputs(const char *db_path);
 double edgepulse_memory_used_ratio(const struct edgepulse_snapshot *snapshot);

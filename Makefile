@@ -2,7 +2,7 @@ CC ?= cc
 CFLAGS ?= -O2 -Wall -Wextra
 CPPFLAGS ?= -Iinclude
 LDFLAGS ?=
-LDLIBS ?= -lsqlite3
+LDLIBS ?= -lsqlite3 -lm
 INSTALL ?= install
 INSTALL_DIR ?= $(INSTALL) -d -m 0755
 INSTALL_BIN ?= $(INSTALL) -m 0755
@@ -27,7 +27,7 @@ $(CTL_TARGET): $(CTL_SRCS) $(LIB_SRCS) include/edgepulse.h
 	$(CC) $(CPPFLAGS) $(CFLAGS) -o $@ $(CTL_SRCS) $(LIB_SRCS) $(LDFLAGS) $(LDLIBS)
 
 $(TEST_TARGET): $(TEST_SRCS) $(LIB_SRCS) include/edgepulse.h
-	$(CC) $(CPPFLAGS) $(CFLAGS) -o $@ $(TEST_SRCS) $(LIB_SRCS) -lm $(LDFLAGS) $(LDLIBS)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -o $@ $(TEST_SRCS) $(LIB_SRCS) $(LDFLAGS) $(LDLIBS)
 
 test: $(TEST_TARGET)
 	./$(TEST_TARGET)

@@ -49,6 +49,7 @@ endef
 define Package/edgepulse/install
 	$(INSTALL_DIR) $(1)/usr/bin
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/edgepulse $(1)/usr/bin/edgepulse
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/edgepulse-ctl $(1)/usr/bin/edgepulse-ctl
 	$(INSTALL_DIR) $(1)/etc/config
 	$(INSTALL_CONF) ./files/etc/config/edgepulse $(1)/etc/config/edgepulse
 	$(INSTALL_DIR) $(1)/etc/init.d

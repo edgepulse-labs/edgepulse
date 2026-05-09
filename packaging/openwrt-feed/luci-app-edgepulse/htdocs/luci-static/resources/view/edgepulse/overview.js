@@ -5,7 +5,7 @@
 
 return view.extend({
 	load: function() {
-		return fs.exec_direct('/usr/bin/edgepulse', [ 'status' ])
+		return fs.exec_direct('/usr/bin/edgepulse-ctl', [ 'status', '--json' ])
 			.catch(function(err) {
 				return JSON.stringify({ error: String(err) });
 			});

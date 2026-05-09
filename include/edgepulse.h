@@ -8,6 +8,7 @@
 #define EDGEPULSE_STATE_DIR "/tmp/edgepulse"
 #define EDGEPULSE_STATUS_PATH "/tmp/edgepulse/edgepulse.json"
 #define EDGEPULSE_DB_PATH "/tmp/edgepulse/edgepulse.db"
+#define EDGEPULSE_CONFIG_PATH "/etc/config/edgepulse"
 #define EDGEPULSE_DEFAULT_INTERVAL_SEC 5
 #define EDGEPULSE_MAX_SAMPLES 256
 

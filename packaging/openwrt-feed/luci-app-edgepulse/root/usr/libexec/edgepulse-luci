@@ -24,6 +24,13 @@ case "$cmd" in
 				;;
 		esac
 		;;
+	agent-status)
+		exec /usr/bin/edgepulse-ctl agent status --json
+		;;
+	agent-diagnose)
+		message="${1:-Run a local EdgePulse diagnostic.}"
+		exec /usr/bin/edgepulse-ctl agent ask "$message"
+		;;
 	*)
 		echo '{"error":"unsupported EdgePulse LuCI command"}'
 		exit 2

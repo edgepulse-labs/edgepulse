@@ -1,6 +1,6 @@
 CC ?= cc
 CFLAGS ?= -O2 -Wall -Wextra
-CPPFLAGS ?= -Iinclude
+CPPFLAGS ?= -Iinclude -DEDGEPULSE_ENABLE_AI_AGENT
 LDFLAGS ?=
 LDLIBS ?= -lsqlite3 -lm
 INSTALL ?= install

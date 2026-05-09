@@ -27,6 +27,7 @@ define Package/luci-app-edgepulse/install
 	$(INSTALL_DATA) ./htdocs/luci-static/resources/view/edgepulse/overview.js $(1)/www/luci-static/resources/view/edgepulse/overview.js
 	$(INSTALL_DATA) ./htdocs/luci-static/resources/view/edgepulse/metrics.js $(1)/www/luci-static/resources/view/edgepulse/metrics.js
 	$(INSTALL_DATA) ./htdocs/luci-static/resources/view/edgepulse/features.js $(1)/www/luci-static/resources/view/edgepulse/features.js
+	$(INSTALL_DATA) ./htdocs/luci-static/resources/view/edgepulse/agent.js $(1)/www/luci-static/resources/view/edgepulse/agent.js
 	$(INSTALL_DATA) ./htdocs/luci-static/resources/view/edgepulse/settings.js $(1)/www/luci-static/resources/view/edgepulse/settings.js
 	$(INSTALL_DIR) $(1)/usr/libexec
 	$(INSTALL_BIN) ./root/usr/libexec/edgepulse-luci $(1)/usr/libexec/edgepulse-luci

@@ -40,6 +40,7 @@ Todo:
 - [x] 建立 `docs/execution-plan.md`。
 - [x] 建立 `docs/openwrt-one-telemetry-mvp.md`。
 - [x] 為專案文件建立繁體中文翻譯。
+- [x] 後續更新專案文件時，同步更新對應的繁體中文翻譯檔。
 - [x] 記錄本地 OpenWrt package 驗證流程。
 - [x] 記錄 unit-test plan。
 
@@ -301,20 +302,20 @@ Initial boundary:
 
 OpenWrt package 與 build configuration todo:
 
-- [ ] 在 `packaging/openwrt-feed/edgepulse/Makefile` 加入 OpenWrt package build option，用來在 build time include 或 exclude AI agent support。
-- [ ] 定義 AI agent defaults 的 package config symbols，例如 `EDGEPULSE_ENABLE_AI_AGENT`、default model provider、default remote base URL、default model name、default local-only mode 與 default policy profile。
-- [ ] 預設不要把真正的 secrets bake 進 firmware images；build-time API key placeholder 僅供 development images 使用，正式使用時優先透過 runtime UCI 或 environment-based secret configuration。
-- [ ] 決定第一版 package shape 是 optional `edgepulse-agent` subpackage，或是編進現有 `edgepulse` package 的 feature。
+- [x] 在 `packaging/openwrt-feed/edgepulse/Makefile` 加入 OpenWrt package build option，用來在 build time include 或 exclude AI agent support。
+- [x] 定義 AI agent defaults 的 package config symbols，例如 `EDGEPULSE_ENABLE_AI_AGENT`、default model provider、default remote base URL、default model name、default local-only mode 與 default policy profile。
+- [x] 預設不要把真正的 secrets bake 進 firmware images；build-time API key placeholder 僅供 development images 使用，正式使用時優先透過 runtime UCI 或 environment-based secret configuration。
+- [x] 決定第一版 package shape 是 optional `edgepulse-agent` subpackage，或是編進現有 `edgepulse` package 的 feature。
 - [ ] 加入第一版 agent implementation 需要的 package dependencies，例如 TLS/HTTP client support、JSON handling、`libuci`、`libubus` 與 SQLite memory。
 - [ ] 確保 image builders 可以為 low-memory targets 選擇不含 AI agent support 的 `edgepulse`。
 - [ ] 記錄在 standalone `edgepulse-openwrt-feed` workflow 中啟用 agent 的 `.config` 範例。
 
 UCI configuration todo:
 
-- [ ] 擴充 `packaging/openwrt-feed/edgepulse/files/etc/config/edgepulse`，加入 `agent` section，包含 `enabled`、`local_only`、`memory_enabled`、`shell_enabled`、`ubus_enabled`、`policy_profile`、request timeout、tool timeout 與 max tool output size。
-- [ ] 加入至少一個 remote OpenAI-compatible endpoint 的 model configuration sections，包含 `enabled`、`role`、`base_url`、`model`、`api_key`、`api_key_env`、timeout 與 retry settings。
-- [ ] 加入 defaults，讓沒有 API key 或 local model endpoint 時，agent 能回報清楚的 "not configured" status。
-- [ ] 在 status output、logs、CLI commands 與 LuCI 中支援 `api_key` redacted handling。
+- [x] 擴充 `packaging/openwrt-feed/edgepulse/files/etc/config/edgepulse`，加入 `agent` section，包含 `enabled`、`local_only`、`memory_enabled`、`shell_enabled`、`ubus_enabled`、`policy_profile`、request timeout、tool timeout 與 max tool output size。
+- [x] 加入至少一個 remote OpenAI-compatible endpoint 的 model configuration sections，包含 `enabled`、`role`、`base_url`、`model`、`api_key`、`api_key_env`、timeout 與 retry settings。
+- [x] 加入 defaults，讓沒有 API key 或 local model endpoint 時，agent 能回報清楚的 "not configured" status。
+- [x] 在 status output、logs、CLI commands 與 LuCI 中支援 `api_key` redacted handling。
 - [ ] 加入 UCI validation，檢查 URL format、model name presence、timeout ranges、memory toggle、shell toggle 與 read-only policy mode。
 - [ ] 加入 migration-safe defaults，確保安裝新 package 不會覆蓋既有 telemetry settings 或 secret fields。
 
@@ -322,6 +323,7 @@ Agent runtime implementation todo:
 
 - [ ] 加入 `edgepulse-agentd` daemon，或在現有 daemon 中加入 agent mode，並納入 procd lifecycle management。
 - [ ] 加入 `edgepulse-agent` 或 `edgepulse-ctl agent` CLI，支援 `ask`、`diagnose`、`status`、`memory list`、`memory delete` 與 `policy show`。
+- [x] 加入第一版 `edgepulse-ctl agent status|diagnose|ask` MVP commands。
 - [ ] 實作 request context tracking，包含 request ID、user message、selected model、tool call history、compacted observation summary 與 final answer。
 - [ ] 實作 read-only shell executor，具備 allowlist、structured argument schemas、timeout、output size limits、exit code capture 與 audit logging。
 - [ ] 實作 read-only `ubus` adapter，支援 `system`、`network.interface`、`network.device`、`network.wireless`、`service`、`iwinfo` 與 selected status methods。
@@ -334,13 +336,13 @@ Agent runtime implementation todo:
 
 LuCI application todo:
 
-- [ ] 在 `luci-app-edgepulse` 底下加入 AI Agent menu entry。
-- [ ] 加入 interaction page，讓使用者可以提出 diagnostic question，並看到 answer、tool evidence、model used 與 policy decisions。
+- [x] 在 `luci-app-edgepulse` 底下加入 AI Agent menu entry。
+- [x] 加入 interaction page，讓使用者可以提出 diagnostic question，並看到 answer、tool evidence、model used 與 policy decisions。
 - [ ] 加入 diagnostic shortcut page 或 mode，支援 WAN down、DNS failure、Wi-Fi instability、high CPU、high memory 與 package/service health 等常見任務。
-- [ ] 擴充 settings page，加入 AI agent enable/disable、local-only mode、model provider、remote base URL、model name、API key 或 API key environment variable、memory toggle、shell toggle、`ubus` toggle、policy profile 與 timeout settings。
-- [ ] 在 LuCI 中 redacted API keys，並要求明確 replacement 才能變更。
-- [ ] 加入 status panel，顯示 agent 是否啟用、model backend 是否已設定、last request status、memory database status 與 policy mode。
-- [ ] 更新 rpcd ACLs，讓 LuCI 只能呼叫必要的 agent status、ask、diagnostic、memory 與 settings endpoints。
+- [x] 擴充 settings page，加入 AI agent enable/disable、local-only mode、model provider、remote base URL、model name、API key 或 API key environment variable、memory toggle、shell toggle、`ubus` toggle、policy profile 與 timeout settings。
+- [x] 在 LuCI 中 redacted API keys，並要求明確 replacement 才能變更。
+- [x] 加入 status panel，顯示 agent 是否啟用、model backend 是否已設定、last request status、memory database status 與 policy mode。
+- [x] 更新 rpcd ACLs，讓 LuCI 只能呼叫必要的 agent status、ask、diagnostic、memory 與 settings endpoints。
 
 Testing and validation todo:
 

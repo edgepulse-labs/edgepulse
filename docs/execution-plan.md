@@ -40,6 +40,7 @@ Todo:
 - [x] Create `docs/execution-plan.md`.
 - [x] Create `docs/openwrt-one-telemetry-mvp.md`.
 - [x] Create Traditional Chinese translations for project docs.
+- [x] Keep updated project docs synchronized with their Traditional Chinese translation files.
 - [x] Document local OpenWrt package validation.
 - [x] Document the unit-test plan.
 
@@ -301,20 +302,20 @@ Initial boundary:
 
 OpenWrt package and build configuration todo:
 
-- [ ] Add an OpenWrt package build option in `packaging/openwrt-feed/edgepulse/Makefile` to include or exclude AI agent support at build time.
-- [ ] Define package config symbols for AI agent defaults, such as `EDGEPULSE_ENABLE_AI_AGENT`, default model provider, default remote base URL, default model name, default local-only mode, and default policy profile.
-- [ ] Avoid baking real secrets into firmware images by default; support a build-time API key placeholder only for development images and prefer runtime UCI or environment-based secret configuration.
-- [ ] Decide whether the first package shape is an optional `edgepulse-agent` subpackage or a feature compiled into the existing `edgepulse` package.
+- [x] Add an OpenWrt package build option in `packaging/openwrt-feed/edgepulse/Makefile` to include or exclude AI agent support at build time.
+- [x] Define package config symbols for AI agent defaults, such as `EDGEPULSE_ENABLE_AI_AGENT`, default model provider, default remote base URL, default model name, default local-only mode, and default policy profile.
+- [x] Avoid baking real secrets into firmware images by default; support a build-time API key placeholder only for development images and prefer runtime UCI or environment-based secret configuration.
+- [x] Decide whether the first package shape is an optional `edgepulse-agent` subpackage or a feature compiled into the existing `edgepulse` package.
 - [ ] Add package dependencies needed by the first agent implementation, such as TLS/HTTP client support, JSON handling, `libuci`, `libubus`, and SQLite memory.
 - [ ] Ensure image builders can select `edgepulse` without AI agent support for low-memory targets.
 - [ ] Document example `.config` entries for enabling the agent in the standalone `edgepulse-openwrt-feed` workflow.
 
 UCI configuration todo:
 
-- [ ] Extend `packaging/openwrt-feed/edgepulse/files/etc/config/edgepulse` with an `agent` section containing `enabled`, `local_only`, `memory_enabled`, `shell_enabled`, `ubus_enabled`, `policy_profile`, request timeout, tool timeout, and max tool output size.
-- [ ] Add model configuration sections for at least one remote OpenAI-compatible endpoint, including `enabled`, `role`, `base_url`, `model`, `api_key`, `api_key_env`, timeout, and retry settings.
-- [ ] Add defaults that let the agent report a clear "not configured" status when no API key or local model endpoint is available.
-- [ ] Support redacted handling for `api_key` in status output, logs, CLI commands, and LuCI.
+- [x] Extend `packaging/openwrt-feed/edgepulse/files/etc/config/edgepulse` with an `agent` section containing `enabled`, `local_only`, `memory_enabled`, `shell_enabled`, `ubus_enabled`, `policy_profile`, request timeout, tool timeout, and max tool output size.
+- [x] Add model configuration sections for at least one remote OpenAI-compatible endpoint, including `enabled`, `role`, `base_url`, `model`, `api_key`, `api_key_env`, timeout, and retry settings.
+- [x] Add defaults that let the agent report a clear "not configured" status when no API key or local model endpoint is available.
+- [x] Support redacted handling for `api_key` in status output, logs, CLI commands, and LuCI.
 - [ ] Add UCI validation for URL format, model name presence, timeout ranges, memory toggle, shell toggle, and read-only policy mode.
 - [ ] Add migration-safe defaults so installing a new package does not overwrite existing telemetry settings or secret fields.
 
@@ -322,6 +323,7 @@ Agent runtime implementation todo:
 
 - [ ] Add an `edgepulse-agentd` daemon or an agent mode inside the existing daemon with procd lifecycle management.
 - [ ] Add an `edgepulse-agent` or `edgepulse-ctl agent` CLI for `ask`, `diagnose`, `status`, `memory list`, `memory delete`, and `policy show`.
+- [x] Add the first `edgepulse-ctl agent status|diagnose|ask` MVP commands.
 - [ ] Implement request context tracking with request ID, user message, selected model, tool call history, compacted observation summary, and final answer.
 - [ ] Implement a read-only shell executor with an allowlist, structured argument schemas, timeout, output size limits, exit code capture, and audit logging.
 - [ ] Implement a read-only `ubus` adapter for `system`, `network.interface`, `network.device`, `network.wireless`, `service`, `iwinfo`, and selected status methods.
@@ -334,13 +336,13 @@ Agent runtime implementation todo:
 
 LuCI application todo:
 
-- [ ] Add an AI Agent menu entry under `luci-app-edgepulse`.
-- [ ] Add an interaction page where the user can ask a diagnostic question and see the answer, tool evidence, model used, and policy decisions.
+- [x] Add an AI Agent menu entry under `luci-app-edgepulse`.
+- [x] Add an interaction page where the user can ask a diagnostic question and see the answer, tool evidence, model used, and policy decisions.
 - [ ] Add a diagnostic shortcut page or mode for common tasks such as WAN down, DNS failure, Wi-Fi instability, high CPU, high memory, and package/service health.
-- [ ] Extend the settings page with AI agent enable/disable, local-only mode, model provider, remote base URL, model name, API key or API key environment variable, memory toggle, shell toggle, `ubus` toggle, policy profile, and timeout settings.
-- [ ] Redact API keys in LuCI and require explicit replacement to change them.
-- [ ] Add a status panel showing whether the agent is enabled, whether a model backend is configured, last request status, memory database status, and policy mode.
-- [ ] Update rpcd ACLs so LuCI can call only the required agent status, ask, diagnostic, memory, and settings endpoints.
+- [x] Extend the settings page with AI agent enable/disable, local-only mode, model provider, remote base URL, model name, API key or API key environment variable, memory toggle, shell toggle, `ubus` toggle, policy profile, and timeout settings.
+- [x] Redact API keys in LuCI and require explicit replacement to change them.
+- [x] Add a status panel showing whether the agent is enabled, whether a model backend is configured, last request status, memory database status, and policy mode.
+- [x] Update rpcd ACLs so LuCI can call only the required agent status, ask, diagnostic, memory, and settings endpoints.
 
 Testing and validation todo:
 

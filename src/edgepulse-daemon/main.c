@@ -27,14 +27,20 @@ static int print_status(void)
 	return 0;
 }
 
-static int run_daemon(int interval_sec)
+static int run_daemon(const char *db_path, int interval_sec, int raw_retention_sec,
+		      int feature_retention_sec)
 {
 	signal(SIGINT, handle_signal);
 	signal(SIGTERM, handle_signal);
 
 	while (keep_running) {
-		if (edgepulse_write_status_outputs(EDGEPULSE_DB_PATH) != 0) {
+		if (edgepulse_write_status_outputs(db_path) != 0) {
 			fprintf(stderr, "edgepulse: failed to write telemetry outputs: %s\n",
+				strerror(errno));
+		}
+		if (edgepulse_apply_retention(db_path, raw_retention_sec,
+					      feature_retention_sec) != 0) {
+			fprintf(stderr, "edgepulse: failed to apply retention cleanup: %s\n",
 				strerror(errno));
 		}
 
@@ -47,7 +53,7 @@ static int run_daemon(int interval_sec)
 
 static void print_usage(FILE *fp)
 {
-	fprintf(fp, "Usage: edgepulse <status|daemon> [interval_sec]\n");
+	fprintf(fp, "Usage: edgepulse <status|daemon> [interval_sec] [db_path] [raw_retention_sec] [feature_retention_sec]\n");
 }
 
 int main(int argc, char **argv)
@@ -62,6 +68,9 @@ int main(int argc, char **argv)
 
 	if (strcmp(argv[1], "daemon") == 0) {
 		int interval_sec = EDGEPULSE_DEFAULT_INTERVAL_SEC;
+		int raw_retention_sec = 3600;
+		int feature_retention_sec = 86400;
+		const char *db_path = EDGEPULSE_DB_PATH;
 
 		if (argc >= 3) {
 			if (edgepulse_parse_positive_int(argv[2], &interval_sec) != 0) {
@@ -69,8 +78,23 @@ int main(int argc, char **argv)
 				return 2;
 			}
 		}
+		if (argc >= 4 && argv[3][0] != '\0')
+			db_path = argv[3];
+		if (argc >= 5) {
+			if (edgepulse_parse_positive_int(argv[4], &raw_retention_sec) != 0) {
+				fprintf(stderr, "edgepulse: invalid raw retention: %s\n", argv[4]);
+				return 2;
+			}
+		}
+		if (argc >= 6) {
+			if (edgepulse_parse_positive_int(argv[5], &feature_retention_sec) != 0) {
+				fprintf(stderr, "edgepulse: invalid feature retention: %s\n", argv[5]);
+				return 2;
+			}
+		}
 
-		return run_daemon(interval_sec);
+		return run_daemon(db_path, interval_sec, raw_retention_sec,
+				  feature_retention_sec);
 	}
 
 	print_usage(stderr);

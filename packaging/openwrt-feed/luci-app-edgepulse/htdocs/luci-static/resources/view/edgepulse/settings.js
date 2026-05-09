@@ -36,6 +36,7 @@ return view.extend({
 		s.option(form.Flag, 'enable_thermal', _('Thermal collector'));
 		s.option(form.Flag, 'enable_wireless', _('Wireless collector'));
 		s.option(form.Flag, 'enable_conntrack', _('Conntrack collector'));
+		s.option(form.Flag, 'enable_nft', _('nftables collector'));
 
 		return m.render();
 	}

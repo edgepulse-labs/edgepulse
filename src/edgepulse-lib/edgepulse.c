@@ -25,6 +25,7 @@ struct edgepulse_interface_map {
 
 static struct edgepulse_interface_map interface_maps[EDGEPULSE_MAX_INTERFACE_MAPS];
 static size_t interface_map_count;
+static const char *active_db_path = EDGEPULSE_DB_PATH;
 
 int edgepulse_ensure_state_dir(void)
 {
@@ -374,6 +375,79 @@ static int collect_conntrack_samples(struct edgepulse_sample_batch *batch)
 	return add_sample(batch, "network.conntrack_count", "", (double)count, "ok");
 }
 
+static void trim_trailing_brace(char *value)
+{
+	size_t len = strlen(value);
+
+	while (len > 0 && (value[len - 1] == '{' || value[len - 1] == ':')) {
+		value[len - 1] = '\0';
+		len--;
+	}
+}
+
+int edgepulse_parse_nft_counters_stream(FILE *fp, struct edgepulse_sample_batch *batch)
+{
+	char line[256];
+	char family[32] = "";
+	char table[64] = "";
+	char counter[64] = "";
+	int found = 0;
+
+	while (fgets(line, sizeof(line), fp)) {
+		char first[32];
+		char second[64];
+		unsigned long long packets;
+		unsigned long long bytes;
+		char labels[160];
+
+		if (sscanf(line, " table %31s %63s", first, second) == 2) {
+			snprintf(family, sizeof(family), "%s", first);
+			snprintf(table, sizeof(table), "%s", second);
+			trim_trailing_brace(table);
+			continue;
+		}
+
+		if (sscanf(line, " counter %63s", first) == 1) {
+			snprintf(counter, sizeof(counter), "%s", first);
+			trim_trailing_brace(counter);
+			continue;
+		}
+
+		if (sscanf(line, " %31s %llu %63s %llu", first, &packets,
+			   second, &bytes) != 4)
+			continue;
+		if (strcmp(first, "packets") != 0 || strcmp(second, "bytes") != 0)
+			continue;
+		if (family[0] == '\0' || table[0] == '\0' || counter[0] == '\0')
+			continue;
+
+		snprintf(labels, sizeof(labels), "family=%s,table=%s,counter=%s",
+			 family, table, counter);
+		if (add_sample(batch, "nft.counter_packets", labels,
+			       (double)packets, "ok") != 0 ||
+		    add_sample(batch, "nft.counter_bytes", labels,
+			       (double)bytes, "ok") != 0)
+			return -1;
+		found++;
+	}
+
+	return found > 0 ? 0 : -1;
+}
+
+static int collect_nft_counter_samples(struct edgepulse_sample_batch *batch)
+{
+	int rc;
+	FILE *fp = popen("/usr/sbin/nft list counters 2>/dev/null", "r");
+
+	if (!fp)
+		return -1;
+
+	rc = edgepulse_parse_nft_counters_stream(fp, batch);
+	if (pclose(fp) == -1)
+		return -1;
+	return rc;
+}
+
 #ifdef EDGEPULSE_ENABLE_UBUS
 enum {
 	BOARD_KERNEL,
@@ -553,7 +627,7 @@ int edgepulse_collect_sample_batch(struct edgepulse_sample_batch *batch)
 	batch->timestamp = time(NULL);
 	clear_interface_maps();
 
-	if (collect_ubus_samples_and_metadata(EDGEPULSE_DB_PATH, batch) != 0)
+	if (collect_ubus_samples_and_metadata(active_db_path, batch) != 0)
 		add_sample(batch, "collector.ubus", "", 0.0, "unavailable");
 
 	if (edgepulse_collect_snapshot(&snapshot) == 0)
@@ -571,6 +645,8 @@ int edgepulse_collect_sample_batch(struct edgepulse_sample_batch *batch)
 		add_sample(batch, "collector.thermal", "", 0.0, "unavailable");
 	if (collect_conntrack_samples(batch) != 0)
 		add_sample(batch, "collector.conntrack", "", 0.0, "unavailable");
+	if (collect_nft_counter_samples(batch) != 0)
+		add_sample(batch, "collector.nft", "", 0.0, "unavailable");
 
 	return batch->count > 0 ? 0 : -1;
 }
@@ -882,6 +958,63 @@ fail:
 	return -1;
 }
 
+int edgepulse_apply_retention(const char *db_path, int raw_retention_sec,
+			      int feature_retention_sec)
+{
+	static const char *raw_sql =
+		"DELETE FROM raw_samples WHERE timestamp < strftime('%s','now') - ?;";
+	static const char *feature_sql =
+		"DELETE FROM feature_rows WHERE window_end < strftime('%s','now') - ?;";
+	sqlite3 *db = NULL;
+	sqlite3_stmt *stmt = NULL;
+	int rc = SQLITE_OK;
+
+	if (raw_retention_sec <= 0 && feature_retention_sec <= 0)
+		return 0;
+	if (edgepulse_init_database(db_path) != 0)
+		return -1;
+	if (sqlite3_open(db_path, &db) != SQLITE_OK)
+		return -1;
+	if (sqlite3_exec(db, "BEGIN IMMEDIATE;", NULL, NULL, NULL) != SQLITE_OK)
+		goto fail;
+
+	if (raw_retention_sec > 0) {
+		if (sqlite3_prepare_v2(db, raw_sql, -1, &stmt, NULL) != SQLITE_OK)
+			goto fail;
+		sqlite3_bind_int(stmt, 1, raw_retention_sec);
+		rc = sqlite3_step(stmt);
+		sqlite3_finalize(stmt);
+		stmt = NULL;
+		if (rc != SQLITE_DONE)
+			goto fail;
+	}
+
+	if (feature_retention_sec > 0) {
+		if (sqlite3_prepare_v2(db, feature_sql, -1, &stmt, NULL) != SQLITE_OK)
+			goto fail;
+		sqlite3_bind_int(stmt, 1, feature_retention_sec);
+		rc = sqlite3_step(stmt);
+		sqlite3_finalize(stmt);
+		stmt = NULL;
+		if (rc != SQLITE_DONE)
+			goto fail;
+	}
+
+	if (sqlite3_exec(db, "COMMIT;", NULL, NULL, NULL) != SQLITE_OK)
+		goto fail;
+	sqlite3_close(db);
+	return 0;
+
+fail:
+	if (stmt)
+		sqlite3_finalize(stmt);
+	if (db) {
+		sqlite3_exec(db, "ROLLBACK;", NULL, NULL, NULL);
+		sqlite3_close(db);
+	}
+	return -1;
+}
+
 int edgepulse_write_sample_batch(const char *db_path,
 				 const struct edgepulse_sample_batch *batch)
 {
@@ -974,6 +1107,7 @@ int edgepulse_write_status_outputs(const char *db_path)
 
 	if (edgepulse_init_database(db_path) != 0)
 		return -1;
+	active_db_path = db_path;
 	if (edgepulse_write_status_file() != 0)
 		return -1;
 	if (edgepulse_collect_sample_batch(&batch) != 0)

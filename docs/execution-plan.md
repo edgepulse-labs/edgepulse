@@ -18,7 +18,7 @@ The project has completed the first MVP path on OpenWrt One:
 - [x] CSV export for training rows backed by stored feature rows.
 - [x] LuCI overview, metrics, features, and settings pages packaged and installed.
 
-The next implementation focus is to harden the MVP further: add retention cleanup, optional nftables counters, and longer-running reliability validation.
+The next implementation focus is to add remote training-data upload, canonical feature normalization, longer-running reliability validation, and collector toggle enforcement.
 
 ## Goal
 
@@ -140,7 +140,7 @@ Add OpenWrt integration:
 - [x] `ubus` network interface status.
 - [x] Wireless status through `/proc/net/wireless` where available.
 - [x] Conntrack count from `/proc/sys/net/netfilter/nf_conntrack_count`.
-- [ ] nftables/counter support as optional later work.
+- [x] nftables/counter support as optional later work.
 
 Todo:
 
@@ -255,6 +255,35 @@ Exit criteria:
 - CSV export has stable column names.
 - Export includes device metadata and feature timestamps.
 - Missing metrics are represented consistently.
+
+## Phase 7: Remote Training Data Upload and Normalization
+
+Status: planned
+
+Add an optional path for sending periodically collected training feature rows to a remote collection server.
+
+Todo:
+
+- [ ] Add upload UCI options: enabled flag, remote URL, token, interval, batch size, TLS verification, and device ID mode.
+- [ ] Add LuCI settings controls for enabling/disabling upload and configuring the remote collector server.
+- [ ] Add `edgepulse-ctl export --format json` or `jsonl` for machine-to-machine upload payloads.
+- [ ] Add an `edgepulse-upload` helper or service that sends bounded batches and stores an acknowledged cursor.
+- [ ] Add retry, backoff, and offline-safe spool behavior so upload failures never block local sampling.
+- [ ] Document the remote server request and acknowledgement schema.
+- [ ] Add thermal zone type collection so multi-zone devices can be normalized more reliably.
+- [ ] Define a canonical feature schema using logical network roles, top-N variable slots, aggregate thermal features, and mask vectors.
+- [ ] Keep device-side export sparse and label-preserving until the canonical schema stabilizes.
+
+Exit criteria:
+
+- Upload is disabled by default and can be enabled from LuCI.
+- The remote collector URL and token can be configured from LuCI/UCI.
+- Feature upload resumes safely after network or server failures.
+- Training pipelines can map variable interface and thermal-zone rows into fixed schema vectors.
+
+Reference:
+
+- [Training data upload and normalization](training-data-upload-and-normalization.md)
 
 ## MVP Definition
 

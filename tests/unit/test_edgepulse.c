@@ -173,6 +173,35 @@ static void test_wireless_fixture(void)
 	fclose(fp);
 }
 
+static void test_nft_counters_fixture(void)
+{
+	static const char fixture[] =
+		"table inet fw4 {\n"
+		"	counter wan_rx {\n"
+		"		packets 12 bytes 3456\n"
+		"	}\n"
+		"	counter lan_tx {\n"
+		"		packets 7 bytes 890\n"
+		"	}\n"
+		"}\n";
+	struct edgepulse_sample_batch batch;
+	const struct edgepulse_sample *sample;
+	FILE *fp = open_fixture(fixture);
+
+	memset(&batch, 0, sizeof(batch));
+	check_int("nft counters fixture parse",
+		  edgepulse_parse_nft_counters_stream(fp, &batch), 0);
+	sample = find_sample(&batch, "nft.counter_bytes",
+			     "family=inet,table=fw4,counter=wan_rx");
+	if (!sample) {
+		fprintf(stderr, "FAIL nft counters fixture: missing wan_rx bytes\n");
+		failures++;
+	} else {
+		check_double("nft counter bytes", sample->value, 3456.0);
+	}
+	fclose(fp);
+}
+
 static void test_database_write(void)
 {
 	const char *db_path = "/tmp/edgepulse-test.db";
@@ -266,6 +295,46 @@ static void test_empty_feature_window_storage(void)
 	unlink(db_path);
 }
 
+static void test_retention_cleanup(void)
+{
+	const char *db_path = "/tmp/edgepulse-retention-test.db";
+	struct edgepulse_sample_batch batch;
+	sqlite3 *db = NULL;
+	sqlite3_stmt *stmt = NULL;
+	time_t now = time(NULL);
+	int rc;
+
+	unlink(db_path);
+	check_int("retention init database", edgepulse_init_database(db_path), 0);
+
+	memset(&batch, 0, sizeof(batch));
+	batch.count = 1;
+	snprintf(batch.samples[0].metric, sizeof(batch.samples[0].metric), "%s",
+		 "test.retention");
+	snprintf(batch.samples[0].status, sizeof(batch.samples[0].status), "%s", "ok");
+	batch.samples[0].value = 1.0;
+
+	batch.timestamp = now - 120;
+	check_int("retention write old batch", edgepulse_write_sample_batch(db_path, &batch), 0);
+	batch.timestamp = now;
+	check_int("retention write fresh batch", edgepulse_write_sample_batch(db_path, &batch), 0);
+	check_int("retention apply", edgepulse_apply_retention(db_path, 60, 60), 0);
+
+	check_int("retention open db", sqlite3_open(db_path, &db), SQLITE_OK);
+	check_int("retention query prepare",
+		  sqlite3_prepare_v2(db, "SELECT count(*) FROM raw_samples;",
+				     -1, &stmt, NULL),
+		  SQLITE_OK);
+	rc = sqlite3_step(stmt);
+	check_int("retention query row", rc, SQLITE_ROW);
+	if (rc == SQLITE_ROW)
+		check_int("retention row count", sqlite3_column_int(stmt, 0), 1);
+
+	sqlite3_finalize(stmt);
+	sqlite3_close(db);
+	unlink(db_path);
+}
+
 int main(void)
 {
 	test_parse_positive_int();
@@ -274,11 +343,13 @@ int main(void)
 	test_proc_stat_fixture();
 	test_net_dev_fixture();
 	test_wireless_fixture();
+	test_nft_counters_fixture();
 	test_collect_snapshot();
 	test_collect_sample_batch();
 	test_database_write();
 	test_empty_feature_window_storage();
 	test_feature_window_storage();
+	test_retention_cleanup();
 
 	if (failures != 0) {
 		fprintf(stderr, "%d unit test(s) failed\n", failures);

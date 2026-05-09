@@ -21,7 +21,7 @@ return view.extend({
 	handleReset: null,
 
 	load: function() {
-		return fs.exec_direct('/usr/bin/edgepulse-ctl', [ 'latest', '--json' ])
+		return fs.exec_direct('/usr/libexec/edgepulse-luci', [ 'latest' ])
 			.catch(function(err) {
 				return JSON.stringify({ error: String(err), samples: [] });
 			});

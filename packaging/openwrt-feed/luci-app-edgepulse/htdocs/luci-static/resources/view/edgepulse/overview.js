@@ -10,11 +10,11 @@ return view.extend({
 
 	load: function() {
 		return Promise.all([
-			fs.exec_direct('/usr/bin/edgepulse-ctl', [ 'status', '--json' ])
+			fs.exec_direct('/usr/libexec/edgepulse-luci', [ 'status' ])
 				.catch(function(err) {
 					return JSON.stringify({ error: String(err) });
 				}),
-			fs.exec_direct('/usr/bin/edgepulse-ctl', [ 'latest', '--json' ])
+			fs.exec_direct('/usr/libexec/edgepulse-luci', [ 'latest' ])
 				.catch(function(err) {
 					return JSON.stringify({ error: String(err), samples: [] });
 				})

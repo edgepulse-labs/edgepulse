@@ -26,7 +26,7 @@ return view.extend({
 	handleReset: null,
 
 	load: function() {
-		return fs.exec_direct('/usr/bin/edgepulse-ctl', [ 'features', '--json', '--window', '60' ])
+		return fs.exec_direct('/usr/libexec/edgepulse-luci', [ 'features', '60' ])
 			.catch(function(err) {
 				return JSON.stringify({ error: String(err), features: [] });
 			});

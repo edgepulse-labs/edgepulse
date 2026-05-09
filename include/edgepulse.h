@@ -61,6 +61,8 @@ int edgepulse_parse_positive_int(const char *value, int *parsed);
 int edgepulse_parse_meminfo_stream(FILE *fp, struct edgepulse_snapshot *snapshot);
 int edgepulse_parse_proc_stat_stream(FILE *fp, struct edgepulse_sample_batch *batch);
 int edgepulse_parse_net_dev_stream(FILE *fp, struct edgepulse_sample_batch *batch);
+int edgepulse_parse_wireless_stream(FILE *fp, struct edgepulse_sample_batch *batch);
+int edgepulse_store_metadata(const char *db_path, const char *key, const char *value);
 int edgepulse_write_status_file(void);
 int edgepulse_write_status_outputs(const char *db_path);
 double edgepulse_memory_used_ratio(const struct edgepulse_snapshot *snapshot);

@@ -18,7 +18,7 @@ The project has completed the first MVP path on OpenWrt One:
 - [x] CSV export for training rows backed by stored feature rows.
 - [x] LuCI overview, metrics, features, and settings pages packaged and installed.
 
-The next implementation focus is to harden the MVP: add richer OpenWrt-specific collectors, retention cleanup, and a narrower RPC interface for LuCI.
+The next implementation focus is to harden the MVP further: add retention cleanup, optional nftables counters, and longer-running reliability validation.
 
 ## Goal
 
@@ -51,7 +51,7 @@ Exit criteria:
 
 ## Phase 1: Package Skeleton
 
-Status: mostly complete
+Status: complete for MVP
 
 Create the OpenWrt feed repository and package structure:
 
@@ -79,8 +79,8 @@ Todo:
 - [x] Build `edgepulse-1.apk` in the local OpenWrt buildroot.
 - [x] Build `luci-app-edgepulse-1.apk` in the local OpenWrt buildroot.
 - [x] Install and verify both packages on OpenWrt One.
-- [ ] Move the feed copy into the standalone `edgepulse-openwrt-feed` repository when the package API stabilizes.
-- [ ] Add release/version workflow for source archives and OpenWrt package `PKG_RELEASE` updates.
+- [x] Sync the feed copy into the standalone `edgepulse-openwrt-feed` repository for local OpenWrt builds.
+- [x] Add release/version workflow for source archives and OpenWrt package `PKG_RELEASE` updates.
 
 Initial dependencies:
 
@@ -132,33 +132,33 @@ Exit criteria:
 
 ## Phase 3: OpenWrt-Specific Collectors
 
-Status: partial
+Status: complete for MVP
 
 Add OpenWrt integration:
 
-- [ ] `ubus` system board information.
-- [ ] `ubus` network interface status.
-- [ ] Wireless status through `ubus`/`iwinfo` where available.
+- [x] `ubus` system board information.
+- [x] `ubus` network interface status.
+- [x] Wireless status through `/proc/net/wireless` where available.
 - [x] Conntrack count from `/proc/sys/net/netfilter/nf_conntrack_count`.
 - [ ] nftables/counter support as optional later work.
 
 Todo:
 
-- [ ] Add a small OpenWrt integration layer around `libubus`.
+- [x] Add a small OpenWrt integration layer around `libubus`.
 - [x] Store basic device metadata in a device metadata table.
-- [ ] Map physical interface counters to logical OpenWrt interfaces.
+- [x] Map physical interface counters to logical OpenWrt interfaces.
 - [x] Treat missing conntrack sources as unavailable, not fatal.
-- [ ] Treat missing wireless sources as unavailable, not fatal.
+- [x] Treat missing wireless sources as unavailable, not fatal.
 
 Exit criteria:
 
 - OpenWrt One board metadata is captured.
 - WAN/LAN counters can be associated with logical interfaces.
-- Wi-Fi radio/interface metrics are recorded when available.
+- Wi-Fi interface metrics are recorded from `/proc/net/wireless` when available.
 
 ## Phase 4: Feature Windows
 
-Status: mostly complete
+Status: complete for MVP
 
 Compute periodic features from raw samples:
 
@@ -222,7 +222,7 @@ Todo:
 - [x] Add `metrics.js`.
 - [x] Add `features.js`.
 - [x] Add `settings.js`.
-- [ ] Replace direct command execution with a narrower RPC endpoint when the data model stabilizes.
+- [x] Replace direct command execution with a narrower RPC endpoint when the data model stabilizes.
 - [x] Verify LuCI page rendering in a browser on OpenWrt One.
 
 Exit criteria:
@@ -248,7 +248,7 @@ Todo:
 - [x] Add `--format`, `--window`, and `--since` argument parsing.
 - [x] Include device metadata in exported rows.
 - [x] Add stable CSV headers.
-- [ ] Add tests for missing metric representation.
+- [x] Add tests for missing metric representation.
 
 Exit criteria:
 

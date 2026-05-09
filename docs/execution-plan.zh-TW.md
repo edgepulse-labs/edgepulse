@@ -18,7 +18,7 @@ Review 日期：2026-05-09
 - [x] 以 stored feature rows 為基礎的 training rows CSV export。
 - [x] LuCI overview、metrics、features 與 settings pages 已完成 package 與安裝驗證。
 
-下一段實作重點是強化 MVP：加入更完整的 OpenWrt-specific collectors、retention cleanup，以及給 LuCI 使用的更窄 RPC interface。
+下一段實作重點是繼續強化 MVP：加入 retention cleanup、optional nftables counters，以及較長時間的可靠性驗證。
 
 ## 目標
 
@@ -51,7 +51,7 @@ Exit criteria:
 
 ## Phase 1: Package Skeleton
 
-Status: mostly complete
+Status: complete for MVP
 
 建立 OpenWrt feed repository 與 package structure：
 
@@ -79,8 +79,8 @@ Todo:
 - [x] 在本地 OpenWrt buildroot 編出 `edgepulse-1.apk`。
 - [x] 在本地 OpenWrt buildroot 編出 `luci-app-edgepulse-1.apk`。
 - [x] 在 OpenWrt One 上安裝並驗證兩個 packages。
-- [ ] Package API 穩定後，將 feed copy 移到獨立的 `edgepulse-openwrt-feed` repository。
-- [ ] 加入 source archive 與 OpenWrt package `PKG_RELEASE` 更新的 release/version workflow。
+- [x] 將 feed copy 同步到獨立的 `edgepulse-openwrt-feed` repository，供本地 OpenWrt build 使用。
+- [x] 加入 source archive 與 OpenWrt package `PKG_RELEASE` 更新的 release/version workflow。
 
 Initial dependencies:
 
@@ -132,33 +132,33 @@ Exit criteria:
 
 ## Phase 3: OpenWrt-Specific Collectors
 
-Status: partial
+Status: complete for MVP
 
 加入 OpenWrt integration：
 
-- [ ] `ubus` system board information。
-- [ ] `ubus` network interface status。
-- [ ] 透過可用的 `ubus`/`iwinfo` 取得 wireless status。
+- [x] `ubus` system board information。
+- [x] `ubus` network interface status。
+- [x] 透過可用的 `/proc/net/wireless` 取得 wireless status。
 - [x] 從 `/proc/sys/net/netfilter/nf_conntrack_count` 取得 conntrack count。
 - [ ] nftables/counter support 作為後續 optional work。
 
 Todo:
 
-- [ ] 加入圍繞 `libubus` 的小型 OpenWrt integration layer。
+- [x] 加入圍繞 `libubus` 的小型 OpenWrt integration layer。
 - [x] 將基本 device metadata 儲存在 device metadata table。
-- [ ] 將 physical interface counters 對應到 OpenWrt logical interfaces。
+- [x] 將 physical interface counters 對應到 OpenWrt logical interfaces。
 - [x] 將缺少 conntrack source 視為 unavailable，而不是 fatal。
-- [ ] 將缺少 wireless source 視為 unavailable，而不是 fatal。
+- [x] 將缺少 wireless source 視為 unavailable，而不是 fatal。
 
 Exit criteria:
 
 - OpenWrt One board metadata 被擷取。
 - WAN/LAN counters 可與 logical interfaces 關聯。
-- 可用時記錄 Wi-Fi radio/interface metrics。
+- 可用時從 `/proc/net/wireless` 記錄 Wi-Fi interface metrics。
 
 ## Phase 4: Feature Windows
 
-Status: mostly complete
+Status: complete for MVP
 
 從 raw samples 計算週期性 features：
 
@@ -222,7 +222,7 @@ Todo:
 - [x] 加入 `metrics.js`。
 - [x] 加入 `features.js`。
 - [x] 加入 `settings.js`。
-- [ ] 等 data model 穩定後，以更窄的 RPC endpoint 取代 direct command execution。
+- [x] 等 data model 穩定後，以更窄的 RPC endpoint 取代 direct command execution。
 - [x] 在 OpenWrt One 上用瀏覽器驗證 LuCI page rendering。
 
 Exit criteria:
@@ -248,7 +248,7 @@ Todo:
 - [x] 加入 `--format`、`--window` 與 `--since` argument parsing。
 - [x] 在 exported rows 中包含 device metadata。
 - [x] 加入 stable CSV headers。
-- [ ] 加入 missing metric representation 的測試。
+- [x] 加入 missing metric representation 的測試。
 
 Exit criteria:
 

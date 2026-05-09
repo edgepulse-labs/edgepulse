@@ -3,7 +3,7 @@
 		"description": "Grant read access to EdgePulse telemetry status",
 		"read": {
 			"file": {
-				"/usr/bin/edgepulse-ctl": [ "exec" ],
+				"/usr/libexec/edgepulse-luci": [ "exec" ],
 				"/tmp/edgepulse/edgepulse.json": [ "read" ]
 			},
 			"uci": [ "edgepulse" ]

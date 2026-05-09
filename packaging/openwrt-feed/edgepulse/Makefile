@@ -42,9 +42,9 @@ define Build/Compile
 	$(MAKE) -C $(PKG_BUILD_DIR) \
 		CC="$(TARGET_CC)" \
 		CPPFLAGS="$(TARGET_CPPFLAGS) -Iinclude" \
-		CFLAGS="$(TARGET_CFLAGS) -Wall -Wextra" \
+		CFLAGS="$(TARGET_CFLAGS) -Wall -Wextra -DEDGEPULSE_ENABLE_UBUS" \
 		LDFLAGS="$(TARGET_LDFLAGS)" \
-		LDLIBS="-lsqlite3 -lm"
+		LDLIBS="-lsqlite3 -lubus -lubox -lblobmsg_json -lm"
 endef
 
 define Package/edgepulse/install

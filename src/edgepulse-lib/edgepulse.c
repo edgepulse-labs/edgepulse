@@ -11,6 +11,21 @@
 
 #include <sqlite3.h>
 
+#ifdef EDGEPULSE_ENABLE_UBUS
+#include <libubox/blobmsg.h>
+#include <libubus.h>
+#endif
+
+#define EDGEPULSE_MAX_INTERFACE_MAPS 32
+
+struct edgepulse_interface_map {
+	char logical[32];
+	char device[32];
+};
+
+static struct edgepulse_interface_map interface_maps[EDGEPULSE_MAX_INTERFACE_MAPS];
+static size_t interface_map_count;
+
 int edgepulse_ensure_state_dir(void)
 {
 	if (mkdir(EDGEPULSE_STATE_DIR, 0755) == 0 || errno == EEXIST)
@@ -34,6 +49,38 @@ static int read_uptime(double *uptime_sec)
 	fclose(fp);
 	return 0;
 }
+
+static void clear_interface_maps(void)
+{
+	memset(interface_maps, 0, sizeof(interface_maps));
+	interface_map_count = 0;
+}
+
+static const char *lookup_logical_interface(const char *device)
+{
+	for (size_t i = 0; i < interface_map_count; i++) {
+		if (strcmp(interface_maps[i].device, device) == 0)
+			return interface_maps[i].logical;
+	}
+
+	return NULL;
+}
+
+#ifdef EDGEPULSE_ENABLE_UBUS
+static void add_interface_map(const char *logical, const char *device)
+{
+	if (!logical || !*logical || !device || !*device)
+		return;
+	if (interface_map_count >= EDGEPULSE_MAX_INTERFACE_MAPS)
+		return;
+
+	snprintf(interface_maps[interface_map_count].logical,
+		 sizeof(interface_maps[interface_map_count].logical), "%s", logical);
+	snprintf(interface_maps[interface_map_count].device,
+		 sizeof(interface_maps[interface_map_count].device), "%s", device);
+	interface_map_count++;
+}
+#endif
 
 static int read_loadavg(double *load1, double *load5, double *load15)
 {
@@ -209,7 +256,11 @@ int edgepulse_parse_net_dev_stream(FILE *fp, struct edgepulse_sample_batch *batc
 			continue;
 
 		trim_trailing_colon(iface);
-		snprintf(labels, sizeof(labels), "iface=%s", iface);
+		if (lookup_logical_interface(iface))
+			snprintf(labels, sizeof(labels), "iface=%s,logical=%s", iface,
+				 lookup_logical_interface(iface));
+		else
+			snprintf(labels, sizeof(labels), "iface=%s", iface);
 
 		if (add_sample(batch, "network.rx_bytes", labels, (double)rx_bytes, "ok") != 0 ||
 		    add_sample(batch, "network.rx_packets", labels, (double)rx_packets, "ok") != 0 ||
@@ -230,6 +281,47 @@ static int collect_network_samples(struct edgepulse_sample_batch *batch)
 		return -1;
 
 	rc = edgepulse_parse_net_dev_stream(fp, batch);
+	fclose(fp);
+	return rc;
+}
+
+int edgepulse_parse_wireless_stream(FILE *fp, struct edgepulse_sample_batch *batch)
+{
+	char line[256];
+	int found = 0;
+
+	if (!fgets(line, sizeof(line), fp) || !fgets(line, sizeof(line), fp))
+		return -1;
+
+	while (fgets(line, sizeof(line), fp)) {
+		char iface[64];
+		char labels[96];
+		double status, link, level, noise;
+
+		if (sscanf(line, " %63[^:]: %lf %lf %lf %lf",
+			   iface, &status, &link, &level, &noise) != 5)
+			continue;
+
+		snprintf(labels, sizeof(labels), "iface=%s", iface);
+		if (add_sample(batch, "wireless.link_quality", labels, link, "ok") != 0 ||
+		    add_sample(batch, "wireless.signal_dbm", labels, level, "ok") != 0 ||
+		    add_sample(batch, "wireless.noise_dbm", labels, noise, "ok") != 0)
+			return -1;
+		found++;
+	}
+
+	return found > 0 ? 0 : -1;
+}
+
+static int collect_wireless_samples(struct edgepulse_sample_batch *batch)
+{
+	int rc;
+	FILE *fp = fopen("/proc/net/wireless", "r");
+
+	if (!fp)
+		return -1;
+
+	rc = edgepulse_parse_wireless_stream(fp, batch);
 	fclose(fp);
 	return rc;
 }
@@ -282,12 +374,187 @@ static int collect_conntrack_samples(struct edgepulse_sample_batch *batch)
 	return add_sample(batch, "network.conntrack_count", "", (double)count, "ok");
 }
 
+#ifdef EDGEPULSE_ENABLE_UBUS
+enum {
+	BOARD_KERNEL,
+	BOARD_HOSTNAME,
+	BOARD_SYSTEM,
+	BOARD_MODEL,
+	BOARD_RELEASE,
+	__BOARD_MAX
+};
+
+static const struct blobmsg_policy board_policy[__BOARD_MAX] = {
+	[BOARD_KERNEL] = { .name = "kernel", .type = BLOBMSG_TYPE_STRING },
+	[BOARD_HOSTNAME] = { .name = "hostname", .type = BLOBMSG_TYPE_STRING },
+	[BOARD_SYSTEM] = { .name = "system", .type = BLOBMSG_TYPE_STRING },
+	[BOARD_MODEL] = { .name = "model", .type = BLOBMSG_TYPE_STRING },
+	[BOARD_RELEASE] = { .name = "release", .type = BLOBMSG_TYPE_TABLE },
+};
+
+enum {
+	RELEASE_DISTRIBUTION,
+	RELEASE_VERSION,
+	__RELEASE_MAX
+};
+
+static const struct blobmsg_policy release_policy[__RELEASE_MAX] = {
+	[RELEASE_DISTRIBUTION] = { .name = "distribution", .type = BLOBMSG_TYPE_STRING },
+	[RELEASE_VERSION] = { .name = "version", .type = BLOBMSG_TYPE_STRING },
+};
+
+struct ubus_metadata_context {
+	const char *db_path;
+	int stored;
+};
+
+static void board_cb(struct ubus_request *req, int type, struct blob_attr *msg)
+{
+	struct ubus_metadata_context *ctx = req->priv;
+	struct blob_attr *tb[__BOARD_MAX];
+	struct blob_attr *release[__RELEASE_MAX];
+
+	(void)type;
+	blobmsg_parse(board_policy, __BOARD_MAX, tb, blob_data(msg), blob_len(msg));
+
+	if (tb[BOARD_KERNEL]) {
+		edgepulse_store_metadata(ctx->db_path, "board.kernel",
+					 blobmsg_get_string(tb[BOARD_KERNEL]));
+		ctx->stored++;
+	}
+	if (tb[BOARD_HOSTNAME]) {
+		edgepulse_store_metadata(ctx->db_path, "board.hostname",
+					 blobmsg_get_string(tb[BOARD_HOSTNAME]));
+		ctx->stored++;
+	}
+	if (tb[BOARD_SYSTEM]) {
+		edgepulse_store_metadata(ctx->db_path, "board.system",
+					 blobmsg_get_string(tb[BOARD_SYSTEM]));
+		ctx->stored++;
+	}
+	if (tb[BOARD_MODEL]) {
+		edgepulse_store_metadata(ctx->db_path, "board.model",
+					 blobmsg_get_string(tb[BOARD_MODEL]));
+		ctx->stored++;
+	}
+	if (tb[BOARD_RELEASE]) {
+		blobmsg_parse(release_policy, __RELEASE_MAX, release,
+			      blobmsg_data(tb[BOARD_RELEASE]), blobmsg_data_len(tb[BOARD_RELEASE]));
+		if (release[RELEASE_DISTRIBUTION])
+			edgepulse_store_metadata(ctx->db_path, "board.release_distribution",
+						 blobmsg_get_string(release[RELEASE_DISTRIBUTION]));
+		if (release[RELEASE_VERSION])
+			edgepulse_store_metadata(ctx->db_path, "board.release_version",
+						 blobmsg_get_string(release[RELEASE_VERSION]));
+		ctx->stored++;
+	}
+}
+
+enum {
+	IFACE_INTERFACE,
+	IFACE_UP,
+	IFACE_DEVICE,
+	IFACE_L3_DEVICE,
+	__IFACE_MAX
+};
+
+static const struct blobmsg_policy iface_policy[__IFACE_MAX] = {
+	[IFACE_INTERFACE] = { .name = "interface", .type = BLOBMSG_TYPE_STRING },
+	[IFACE_UP] = { .name = "up", .type = BLOBMSG_TYPE_BOOL },
+	[IFACE_DEVICE] = { .name = "device", .type = BLOBMSG_TYPE_STRING },
+	[IFACE_L3_DEVICE] = { .name = "l3_device", .type = BLOBMSG_TYPE_STRING },
+};
+
+enum {
+	DUMP_INTERFACE,
+	__DUMP_MAX
+};
+
+static const struct blobmsg_policy dump_policy[__DUMP_MAX] = {
+	[DUMP_INTERFACE] = { .name = "interface", .type = BLOBMSG_TYPE_ARRAY },
+};
+
+static void network_dump_cb(struct ubus_request *req, int type, struct blob_attr *msg)
+{
+	struct edgepulse_sample_batch *batch = req->priv;
+	struct blob_attr *tb[__DUMP_MAX];
+	struct blob_attr *cur;
+	int rem;
+
+	(void)type;
+	blobmsg_parse(dump_policy, __DUMP_MAX, tb, blob_data(msg), blob_len(msg));
+	if (!tb[DUMP_INTERFACE])
+		return;
+
+	blobmsg_for_each_attr(cur, tb[DUMP_INTERFACE], rem) {
+		struct blob_attr *iface[__IFACE_MAX];
+		const char *logical;
+		const char *device = NULL;
+		char labels[96];
+
+		blobmsg_parse(iface_policy, __IFACE_MAX, iface,
+			      blobmsg_data(cur), blobmsg_data_len(cur));
+		if (!iface[IFACE_INTERFACE])
+			continue;
+
+		logical = blobmsg_get_string(iface[IFACE_INTERFACE]);
+		if (iface[IFACE_L3_DEVICE])
+			device = blobmsg_get_string(iface[IFACE_L3_DEVICE]);
+		else if (iface[IFACE_DEVICE])
+			device = blobmsg_get_string(iface[IFACE_DEVICE]);
+
+		if (device)
+			add_interface_map(logical, device);
+
+		snprintf(labels, sizeof(labels), "logical=%s", logical);
+		if (iface[IFACE_UP])
+			add_sample(batch, "network.interface_up", labels,
+				   blobmsg_get_bool(iface[IFACE_UP]) ? 1.0 : 0.0, "ok");
+	}
+}
+
+static int collect_ubus_samples_and_metadata(const char *db_path,
+					     struct edgepulse_sample_batch *batch)
+{
+	struct ubus_context *ctx;
+	struct ubus_metadata_context metadata = { .db_path = db_path, .stored = 0 };
+	uint32_t id;
+	int rc = -1;
+
+	ctx = ubus_connect(NULL);
+	if (!ctx)
+		return -1;
+
+	if (ubus_lookup_id(ctx, "system", &id) == 0)
+		ubus_invoke(ctx, id, "board", NULL, board_cb, &metadata, 3000);
+
+	if (ubus_lookup_id(ctx, "network.interface", &id) == 0 &&
+	    ubus_invoke(ctx, id, "dump", NULL, network_dump_cb, batch, 3000) == 0)
+		rc = 0;
+
+	ubus_free(ctx);
+	return rc == 0 || metadata.stored > 0 ? 0 : -1;
+}
+#else
+static int collect_ubus_samples_and_metadata(const char *db_path,
+					     struct edgepulse_sample_batch *batch)
+{
+	(void)db_path;
+	(void)batch;
+	return -1;
+}
+#endif
+
 int edgepulse_collect_sample_batch(struct edgepulse_sample_batch *batch)
 {
 	struct edgepulse_snapshot snapshot;
 
 	memset(batch, 0, sizeof(*batch));
 	batch->timestamp = time(NULL);
+	clear_interface_maps();
+
+	if (collect_ubus_samples_and_metadata(EDGEPULSE_DB_PATH, batch) != 0)
+		add_sample(batch, "collector.ubus", "", 0.0, "unavailable");
 
 	if (edgepulse_collect_snapshot(&snapshot) == 0)
 		add_snapshot_samples(batch, &snapshot);
@@ -298,6 +565,8 @@ int edgepulse_collect_sample_batch(struct edgepulse_sample_batch *batch)
 		add_sample(batch, "collector.cpu", "", 0.0, "error");
 	if (collect_network_samples(batch) != 0)
 		add_sample(batch, "collector.network", "", 0.0, "error");
+	if (collect_wireless_samples(batch) != 0)
+		add_sample(batch, "collector.wireless", "", 0.0, "unavailable");
 	if (collect_thermal_samples(batch) != 0)
 		add_sample(batch, "collector.thermal", "", 0.0, "unavailable");
 	if (collect_conntrack_samples(batch) != 0)
@@ -430,6 +699,35 @@ int edgepulse_init_database(const char *db_path)
 		sqlite3_free(errmsg);
 	sqlite3_close(db);
 	return rc == SQLITE_OK ? 0 : -1;
+}
+
+int edgepulse_store_metadata(const char *db_path, const char *key, const char *value)
+{
+	static const char *sql =
+		"INSERT INTO device_metadata(key, value, updated_at) "
+		"VALUES(?, ?, strftime('%s','now')) "
+		"ON CONFLICT(key) DO UPDATE SET "
+		"value=excluded.value, updated_at=excluded.updated_at;";
+	sqlite3 *db = NULL;
+	sqlite3_stmt *stmt = NULL;
+	int rc;
+
+	if (!key || !*key || !value)
+		return -1;
+	if (sqlite3_open(db_path, &db) != SQLITE_OK)
+		return -1;
+	if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) != SQLITE_OK) {
+		sqlite3_close(db);
+		return -1;
+	}
+
+	sqlite3_bind_text(stmt, 1, key, -1, SQLITE_STATIC);
+	sqlite3_bind_text(stmt, 2, value, -1, SQLITE_STATIC);
+	rc = sqlite3_step(stmt);
+
+	sqlite3_finalize(stmt);
+	sqlite3_close(db);
+	return rc == SQLITE_DONE ? 0 : -1;
 }
 
 static void compute_feature_math(struct edgepulse_feature *feature,
@@ -674,6 +972,8 @@ int edgepulse_write_status_outputs(const char *db_path)
 	struct edgepulse_sample_batch batch;
 	static const int feature_windows[] = { 60, 300, 900 };
 
+	if (edgepulse_init_database(db_path) != 0)
+		return -1;
 	if (edgepulse_write_status_file() != 0)
 		return -1;
 	if (edgepulse_collect_sample_batch(&batch) != 0)

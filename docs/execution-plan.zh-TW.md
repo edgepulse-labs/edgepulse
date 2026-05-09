@@ -18,7 +18,7 @@ Review 日期：2026-05-09
 - [x] 以 stored feature rows 為基礎的 training rows CSV export。
 - [x] LuCI overview、metrics、features 與 settings pages 已完成 package 與安裝驗證。
 
-下一段實作重點是繼續強化 MVP：加入 retention cleanup、optional nftables counters，以及較長時間的可靠性驗證。
+下一段實作重點是加入遠端訓練資料上傳、canonical feature normalization、較長時間的可靠性驗證，並讓 collector toggles 實際控制採樣行為。
 
 ## 目標
 
@@ -140,7 +140,7 @@ Status: complete for MVP
 - [x] `ubus` network interface status。
 - [x] 透過可用的 `/proc/net/wireless` 取得 wireless status。
 - [x] 從 `/proc/sys/net/netfilter/nf_conntrack_count` 取得 conntrack count。
-- [ ] nftables/counter support 作為後續 optional work。
+- [x] nftables/counter support 作為後續 optional work。
 
 Todo:
 
@@ -255,6 +255,35 @@ Exit criteria:
 - CSV export 有穩定的 column names。
 - Export 包含 device metadata 與 feature timestamps。
 - Missing metrics 以一致方式表示。
+
+## Phase 7: Remote Training Data Upload and Normalization
+
+Status: planned
+
+加入可選的遠端上傳路徑，將週期性收集到的 training feature rows 傳送到遠端資料蒐集伺服器。
+
+Todo:
+
+- [ ] 加入 upload UCI options：enabled flag、remote URL、token、interval、batch size、TLS verification 與 device ID mode。
+- [ ] 在 LuCI settings 加入啟用/停用 upload 與設定 remote collector server 的 controls。
+- [ ] 加入 `edgepulse-ctl export --format json` 或 `jsonl`，供 machine-to-machine upload payload 使用。
+- [ ] 新增 `edgepulse-upload` helper 或 service，用有界 batch 傳送資料並儲存 acknowledged cursor。
+- [ ] 加入 retry、backoff 與 offline-safe spool behavior，確保 upload 失敗不會阻塞本地採樣。
+- [ ] 記錄 remote server request 與 acknowledgement schema。
+- [ ] 加入 thermal zone type collection，讓多 thermal-zone 裝置能更可靠地 normalization。
+- [ ] 定義 canonical feature schema，使用 logical network roles、top-N variable slots、aggregate thermal features 與 mask vectors。
+- [ ] 在 canonical schema 穩定前，device-side export 維持 sparse 且保留 labels。
+
+Exit criteria:
+
+- Upload 預設停用，且可從 LuCI 啟用。
+- Remote collector URL 與 token 可從 LuCI/UCI 設定。
+- 網路或伺服器故障後，feature upload 能安全恢復。
+- Training pipelines 可將可變 interface 與 thermal-zone rows 對應成固定 schema vectors。
+
+Reference:
+
+- [訓練資料上傳與標準化](training-data-upload-and-normalization.zh-TW.md)
 
 ## MVP Definition
 

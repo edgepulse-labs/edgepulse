@@ -1,0 +1,13 @@
+{
+	"admin/status/edgepulse": {
+		"title": "EdgePulse",
+		"order": 80,
+		"action": {
+			"type": "view",
+			"path": "edgepulse/overview"
+		},
+		"depends": {
+			"acl": [ "luci-app-edgepulse" ]
+		}
+	}
+}

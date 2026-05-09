@@ -4,6 +4,10 @@
 'require ui';
 
 return view.extend({
+	handleSaveApply: null,
+	handleSave: null,
+	handleReset: null,
+
 	load: function() {
 		return fs.exec_direct('/usr/bin/edgepulse-ctl', [ 'status', '--json' ])
 			.catch(function(err) {

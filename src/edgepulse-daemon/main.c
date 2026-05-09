@@ -33,9 +33,9 @@ static int run_daemon(int interval_sec)
 	signal(SIGTERM, handle_signal);
 
 	while (keep_running) {
-		if (edgepulse_write_status_file() != 0) {
-			fprintf(stderr, "edgepulse: failed to write %s: %s\n",
-				EDGEPULSE_STATUS_PATH, strerror(errno));
+		if (edgepulse_write_status_outputs(EDGEPULSE_DB_PATH) != 0) {
+			fprintf(stderr, "edgepulse: failed to write telemetry outputs: %s\n",
+				strerror(errno));
 		}
 
 		for (int i = 0; keep_running && i < interval_sec; i++)

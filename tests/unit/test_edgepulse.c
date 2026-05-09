@@ -3,6 +3,7 @@
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 
 static int failures;
 
@@ -58,11 +59,43 @@ static void test_collect_snapshot(void)
 	}
 }
 
+static void test_collect_sample_batch(void)
+{
+	struct edgepulse_sample_batch batch;
+
+	check_int("collect sample batch", edgepulse_collect_sample_batch(&batch), 0);
+	if (batch.count == 0) {
+		fprintf(stderr, "FAIL collect sample batch: count is zero\n");
+		failures++;
+	}
+}
+
+static void test_database_write(void)
+{
+	const char *db_path = "/tmp/edgepulse-test.db";
+	struct edgepulse_sample_batch batch;
+
+	unlink(db_path);
+	memset(&batch, 0, sizeof(batch));
+	batch.timestamp = 123;
+	batch.count = 1;
+	snprintf(batch.samples[0].metric, sizeof(batch.samples[0].metric), "%s", "test.metric");
+	snprintf(batch.samples[0].labels, sizeof(batch.samples[0].labels), "%s", "label=value");
+	snprintf(batch.samples[0].status, sizeof(batch.samples[0].status), "%s", "ok");
+	batch.samples[0].value = 42.5;
+
+	check_int("init database", edgepulse_init_database(db_path), 0);
+	check_int("write sample batch", edgepulse_write_sample_batch(db_path, &batch), 0);
+	unlink(db_path);
+}
+
 int main(void)
 {
 	test_parse_positive_int();
 	test_memory_used_ratio();
 	test_collect_snapshot();
+	test_collect_sample_batch();
+	test_database_write();
 
 	if (failures != 0) {
 		fprintf(stderr, "%d unit test(s) failed\n", failures);

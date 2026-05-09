@@ -3,8 +3,51 @@
 		"title": "EdgePulse",
 		"order": 80,
 		"action": {
+			"type": "firstchild"
+		},
+		"depends": {
+			"acl": [ "luci-app-edgepulse" ]
+		}
+	},
+	"admin/status/edgepulse/overview": {
+		"title": "Overview",
+		"order": 10,
+		"action": {
 			"type": "view",
 			"path": "edgepulse/overview"
+		},
+		"depends": {
+			"acl": [ "luci-app-edgepulse" ]
+		}
+	},
+	"admin/status/edgepulse/metrics": {
+		"title": "Metrics",
+		"order": 20,
+		"action": {
+			"type": "view",
+			"path": "edgepulse/metrics"
+		},
+		"depends": {
+			"acl": [ "luci-app-edgepulse" ]
+		}
+	},
+	"admin/status/edgepulse/features": {
+		"title": "Features",
+		"order": 30,
+		"action": {
+			"type": "view",
+			"path": "edgepulse/features"
+		},
+		"depends": {
+			"acl": [ "luci-app-edgepulse" ]
+		}
+	},
+	"admin/status/edgepulse/settings": {
+		"title": "Settings",
+		"order": 40,
+		"action": {
+			"type": "view",
+			"path": "edgepulse/settings"
 		},
 		"depends": {
 			"acl": [ "luci-app-edgepulse" ]

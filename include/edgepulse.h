@@ -2,11 +2,14 @@
 #define EDGEPULSE_H
 
 #include <stdio.h>
+#include <time.h>
 
 #define EDGEPULSE_VERSION "0.1.0-dev"
 #define EDGEPULSE_STATE_DIR "/tmp/edgepulse"
 #define EDGEPULSE_STATUS_PATH "/tmp/edgepulse/edgepulse.json"
+#define EDGEPULSE_DB_PATH "/tmp/edgepulse/edgepulse.db"
 #define EDGEPULSE_DEFAULT_INTERVAL_SEC 5
+#define EDGEPULSE_MAX_SAMPLES 256
 
 struct edgepulse_snapshot {
 	double uptime_sec;
@@ -18,10 +21,28 @@ struct edgepulse_snapshot {
 	unsigned long mem_free_kb;
 };
 
+struct edgepulse_sample {
+	char metric[64];
+	char labels[128];
+	double value;
+	char status[32];
+};
+
+struct edgepulse_sample_batch {
+	time_t timestamp;
+	struct edgepulse_sample samples[EDGEPULSE_MAX_SAMPLES];
+	size_t count;
+};
+
 int edgepulse_collect_snapshot(struct edgepulse_snapshot *snapshot);
+int edgepulse_collect_sample_batch(struct edgepulse_sample_batch *batch);
+int edgepulse_init_database(const char *db_path);
+int edgepulse_write_sample_batch(const char *db_path,
+				 const struct edgepulse_sample_batch *batch);
 int edgepulse_ensure_state_dir(void);
 int edgepulse_parse_positive_int(const char *value, int *parsed);
 int edgepulse_write_status_file(void);
+int edgepulse_write_status_outputs(const char *db_path);
 double edgepulse_memory_used_ratio(const struct edgepulse_snapshot *snapshot);
 void edgepulse_write_snapshot_json(FILE *fp, const struct edgepulse_snapshot *snapshot);
 

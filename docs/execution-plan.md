@@ -1,6 +1,23 @@
 # Execution Plan
 
-Review date: 2026-05-07
+Review date: 2026-05-09
+
+## Current Status
+
+The project has completed the first MVP path on OpenWrt One:
+
+- [x] C library shared by the daemon and CLI.
+- [x] `edgepulse` daemon command with periodic JSON status output.
+- [x] `edgepulse-ctl` minimum CLI with `status`, `latest`, `features`, `export`, and `version` commands.
+- [x] Unit test program for the current shared telemetry helpers.
+- [x] OpenWrt feed package skeleton for `edgepulse` and `luci-app-edgepulse`.
+- [x] Local OpenWrt buildroot validation for `.apk` package output.
+- [x] OpenWrt One install verification with `apk add --allow-untrusted`.
+- [x] SQLite-backed raw sample storage under `/tmp/edgepulse/edgepulse.db`.
+- [x] On-demand feature windows and CSV export for training rows.
+- [x] LuCI overview, metrics, features, and settings pages packaged and installed.
+
+The next implementation focus is to harden the MVP: add stored feature tables, richer OpenWrt-specific collectors, retention cleanup, and a narrower RPC interface for LuCI.
 
 ## Goal
 
@@ -13,14 +30,17 @@ Build the smallest useful EdgePulse implementation for OpenWrt One:
 
 ## Phase 0: Documentation Baseline
 
-Status: started
+Status: complete
 
-Deliverables:
+Todo:
 
-- `docs/README.md`
-- `docs/readme-review.md`
-- `docs/execution-plan.md`
-- `docs/openwrt-one-telemetry-mvp.md`
+- [x] Create `docs/README.md`.
+- [x] Create `docs/readme-review.md`.
+- [x] Create `docs/execution-plan.md`.
+- [x] Create `docs/openwrt-one-telemetry-mvp.md`.
+- [x] Create Traditional Chinese translations for project docs.
+- [x] Document local OpenWrt package validation.
+- [x] Document the unit-test plan.
 
 Exit criteria:
 
@@ -29,6 +49,8 @@ Exit criteria:
 - Metric, SQLite, and LuCI plans are explicit enough to become tickets.
 
 ## Phase 1: Package Skeleton
+
+Status: mostly complete
 
 Create the OpenWrt feed repository and package structure:
 
@@ -43,6 +65,21 @@ edgepulse-openwrt-feed/
     root/usr/share/luci/menu.d/luci-app-edgepulse.json
     root/usr/share/rpcd/acl.d/luci-app-edgepulse.json
 ```
+
+Todo:
+
+- [x] Add `packaging/openwrt-feed/edgepulse/Makefile`.
+- [x] Add `packaging/openwrt-feed/edgepulse/files/etc/config/edgepulse`.
+- [x] Add `packaging/openwrt-feed/edgepulse/files/etc/init.d/edgepulse`.
+- [x] Add `packaging/openwrt-feed/luci-app-edgepulse/Makefile`.
+- [x] Add LuCI menu metadata.
+- [x] Add rpcd ACL metadata.
+- [x] Install both `edgepulse` and `edgepulse-ctl` into the OpenWrt package.
+- [x] Build `edgepulse-1.apk` in the local OpenWrt buildroot.
+- [x] Build `luci-app-edgepulse-1.apk` in the local OpenWrt buildroot.
+- [x] Install and verify both packages on OpenWrt One.
+- [ ] Move the feed copy into the standalone `edgepulse-openwrt-feed` repository when the package API stabilizes.
+- [ ] Add release/version workflow for source archives and OpenWrt package `PKG_RELEASE` updates.
 
 Initial dependencies:
 
@@ -64,14 +101,27 @@ Reference:
 
 ## Phase 2: Minimal Raw Sampling
 
+Status: complete for MVP
+
 Implement low-risk file-based collectors first:
 
-- CPU: `/proc/stat`
-- Memory: `/proc/meminfo`
-- Load: `/proc/loadavg`
-- Network interfaces: `/proc/net/dev`
-- Thermal: `/sys/class/thermal/thermal_zone*/temp`
-- Uptime: `/proc/uptime`
+- [x] CPU: `/proc/stat`
+- [x] Memory: `/proc/meminfo`
+- [x] Load: `/proc/loadavg`
+- [x] Network interfaces: `/proc/net/dev`
+- [x] Thermal: `/sys/class/thermal/thermal_zone*/temp`
+- [x] Uptime: `/proc/uptime`
+
+Todo:
+
+- [x] Add shared `edgepulse_collect_snapshot()` helper.
+- [x] Emit a current JSON status snapshot.
+- [x] Keep daemon output under `/tmp/edgepulse`.
+- [x] Add SQLite schema initialization under `/tmp/edgepulse/edgepulse.db`.
+- [x] Write raw samples into SQLite instead of only `edgepulse.json`.
+- [x] Read daemon interval from UCI through the init script.
+- [x] Record per-collector status so one failed collector does not fail the whole sample.
+- [ ] Add fixture-based tests for parsing `/proc` and `/sys` files.
 
 Exit criteria:
 
@@ -81,13 +131,22 @@ Exit criteria:
 
 ## Phase 3: OpenWrt-Specific Collectors
 
+Status: on-demand MVP complete
+
 Add OpenWrt integration:
 
-- `ubus` system board information.
-- `ubus` network interface status.
-- Wireless status through `ubus`/`iwinfo` where available.
-- Conntrack count from `/proc/sys/net/netfilter/nf_conntrack_count`.
-- nftables/counter support as optional later work.
+- [ ] `ubus` system board information.
+- [ ] `ubus` network interface status.
+- [ ] Wireless status through `ubus`/`iwinfo` where available.
+- [ ] Conntrack count from `/proc/sys/net/netfilter/nf_conntrack_count`.
+- [ ] nftables/counter support as optional later work.
+
+Todo:
+
+- [ ] Add a small OpenWrt integration layer around `libubus`.
+- [ ] Store board metadata with raw samples or a device metadata table.
+- [ ] Map physical interface counters to logical OpenWrt interfaces.
+- [ ] Treat missing wireless or conntrack sources as unavailable, not fatal.
 
 Exit criteria:
 
@@ -97,21 +156,30 @@ Exit criteria:
 
 ## Phase 4: Feature Windows
 
+Status: not started
+
 Compute periodic features from raw samples:
 
-- mean
-- min
-- max
-- standard deviation
-- delta
-- rate per second
-- coefficient of variation
+- [x] mean
+- [x] min
+- [x] max
+- [ ] standard deviation
+- [ ] delta
+- [ ] rate per second
+- [ ] coefficient of variation
 
 Initial windows:
 
-- 60 seconds
-- 5 minutes
-- 15 minutes
+- [x] 60 seconds
+- [x] 5 minutes
+- [x] 15 minutes
+
+Todo:
+
+- [ ] Define the feature table schema.
+- [x] Add feature-window computation over SQLite raw samples.
+- [x] Add `edgepulse-ctl features --json --window 60` implementation.
+- [ ] Add unit tests for feature calculations.
 
 Exit criteria:
 
@@ -120,6 +188,8 @@ Exit criteria:
 - Export query can produce training rows.
 
 ## Phase 5: LuCI Application
+
+Status: complete for MVP
 
 Create a LuCI app:
 
@@ -136,10 +206,22 @@ luci-app-edgepulse/
 
 Views:
 
-- Overview: health snapshot, latest CPU, memory, thermal, network, and collector status.
-- Metrics: latest raw metrics and short time-series charts.
-- Features: derived windows prepared for training data.
-- Settings: UCI-backed sampling interval, retention, enabled collectors, and database path.
+- [x] Overview: initial health snapshot, load, memory, and uptime.
+- [ ] Overview: latest CPU, thermal, network, and collector status.
+- [x] Metrics: latest raw metrics table.
+- [x] Features: derived windows prepared for training data.
+- [x] Settings: UCI-backed sampling interval, retention, enabled collectors, and database path.
+
+Todo:
+
+- [x] Add LuCI overview route.
+- [x] Add rpcd ACL allowing LuCI to execute `edgepulse-ctl`.
+- [x] Wire overview page to `edgepulse-ctl status --json`.
+- [x] Add `metrics.js`.
+- [x] Add `features.js`.
+- [x] Add `settings.js`.
+- [ ] Replace direct command execution with a narrower RPC endpoint when the data model stabilizes.
+- [ ] Verify LuCI page rendering in a browser on OpenWrt One.
 
 Exit criteria:
 
@@ -149,11 +231,22 @@ Exit criteria:
 
 ## Phase 6: Training Data Export
 
+Status: complete for MVP
+
 Add a local export command:
 
 ```sh
-edgepulse export --format csv --window 60s --since 1h
+edgepulse-ctl export --format csv --window 60s --since 1h
 ```
+
+Todo:
+
+- [x] Add placeholder `edgepulse-ctl export` command.
+- [x] Implement CSV export from computed feature rows.
+- [x] Add `--format`, `--window`, and `--since` argument parsing.
+- [x] Include device metadata in exported rows.
+- [x] Add stable CSV headers.
+- [ ] Add tests for missing metric representation.
 
 Exit criteria:
 
@@ -165,8 +258,8 @@ Exit criteria:
 
 The first MVP is complete when OpenWrt One can:
 
-- Run `edgepulse` as a lightweight daemon.
-- Store volatile telemetry in `/tmp/edgepulse/edgepulse.db`.
-- Derive time-window features.
-- Show latest metrics and settings in LuCI.
-- Export feature rows for external model training.
+- [x] Run `edgepulse` as a lightweight daemon.
+- [x] Store volatile telemetry in `/tmp/edgepulse/edgepulse.db`.
+- [x] Derive time-window features.
+- [x] Show latest metrics and settings in LuCI.
+- [x] Export feature rows for external model training.

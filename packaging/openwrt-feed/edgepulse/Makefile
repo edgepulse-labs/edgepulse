@@ -43,7 +43,8 @@ define Build/Compile
 		CC="$(TARGET_CC)" \
 		CPPFLAGS="$(TARGET_CPPFLAGS) -Iinclude" \
 		CFLAGS="$(TARGET_CFLAGS) -Wall -Wextra" \
-		LDFLAGS="$(TARGET_LDFLAGS)"
+		LDFLAGS="$(TARGET_LDFLAGS)" \
+		LDLIBS="-lsqlite3"
 endef
 
 define Package/edgepulse/install

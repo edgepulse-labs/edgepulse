@@ -8,6 +8,7 @@
 - [執行計畫](execution-plan.zh-TW.md)：第一版 OpenWrt One 實作的分階段計畫。
 - [OpenWrt feeds 與 repos](openwrt-feeds-and-repos.zh-TW.md)：repository 拆分、自訂 feed 與 OpenWrt 整合流程。
 - [本地 OpenWrt Package 驗證](local-openwrt-validation.zh-TW.md)：使用本地 buildroot 驗證 EdgePulse package 的流程。
+- [本地 GitHub Actions Runner](local-github-actions-runner.zh-TW.md)：設定 self-hosted runner，讓 GitHub push 觸發本地 build 與 validation jobs。
 - [Unit test plan](unit-test-plan.zh-TW.md)：unit-test 邊界、test program 與近期 coverage plan。
 - [OpenWrt One telemetry MVP](openwrt-one-telemetry-mvp.zh-TW.md)：最小 C package、SQLite、feature 採樣與 LuCI 規劃。
 - [訓練資料上傳與標準化](training-data-upload-and-normalization.zh-TW.md)：遠端上傳機制與固定 schema normalization strategy 規劃。

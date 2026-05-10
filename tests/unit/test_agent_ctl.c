@@ -180,6 +180,7 @@ static void test_agent_model_request_and_payload(void)
 	struct agent_model_request request;
 	struct agent_model_response response;
 	char payload[1024];
+	char content[256];
 
 	init_agent_config(&agent, &model);
 	agent.enabled = 1;
@@ -217,6 +218,17 @@ static void test_agent_model_request_and_payload(void)
 	agent_call_model_with_retries(&request, &model, "hello", &response);
 	check_int("unsupported transport attempts", response.attempts, 1);
 	check_string("unsupported transport status", response.status, "unsupported_transport");
+
+	check_int("extract model content",
+		  extract_openai_message_content("{\"choices\":[{\"message\":{\"content\":\"local model response\"}}]}",
+						 content, sizeof(content)),
+		  0);
+	check_string("model content", content, "local model response");
+	check_int("extract escaped model content",
+		  extract_openai_message_content("{\"content\":\"line one\\nline two \\\"quoted\\\"\"}",
+						 content, sizeof(content)),
+		  0);
+	check_string("escaped model content", content, "line one\nline two \"quoted\"");
 }
 
 static void test_agent_validation_warnings(void)

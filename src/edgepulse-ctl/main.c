@@ -765,6 +765,55 @@ static const char *agent_model_api_key(const struct agent_model_config *model)
 	return env_value ? env_value : "";
 }
 
+static int extract_openai_message_content(const char *body, char *out, size_t out_size)
+{
+	const char *key;
+	const char *cursor;
+	size_t used = 0;
+
+	if (!body || !out || out_size == 0)
+		return -1;
+
+	key = strstr(body, "\"content\"");
+	if (!key)
+		return -1;
+	cursor = strchr(key + 9, ':');
+	if (!cursor)
+		return -1;
+	cursor++;
+	while (*cursor == ' ' || *cursor == '\t' || *cursor == '\n' || *cursor == '\r')
+		cursor++;
+	if (*cursor != '"')
+		return -1;
+	cursor++;
+
+	while (*cursor && *cursor != '"' && used + 1 < out_size) {
+		if (*cursor == '\\' && cursor[1]) {
+			cursor++;
+			switch (*cursor) {
+			case 'n':
+				out[used++] = '\n';
+				break;
+			case 'r':
+				out[used++] = '\r';
+				break;
+			case 't':
+				out[used++] = '\t';
+				break;
+			default:
+				out[used++] = *cursor;
+				break;
+			}
+			cursor++;
+			continue;
+		}
+		out[used++] = *cursor++;
+	}
+
+	out[used] = '\0';
+	return used > 0 ? 0 : -1;
+}
+
 static int agent_call_local_model(const struct agent_model_request *request,
 				  const struct agent_model_config *model,
 				  const char *question,
@@ -1305,10 +1354,11 @@ static int EDGEPULSE_AGENT_UNUSED print_agent_diagnose(const char *question)
 	struct agent_model_config model;
 	struct edgepulse_snapshot snapshot;
 	const char *model_status;
-	const char *answer;
+	const char *fallback_answer;
 	double memory_ratio;
 	char request_id[64];
 	char memory_summary[512];
+	char answer[1024];
 	struct agent_tool_result uname_result;
 	struct agent_tool_result uptime_result;
 	struct agent_tool_result ubus_board_result;
@@ -1348,12 +1398,18 @@ static int EDGEPULSE_AGENT_UNUSED print_agent_diagnose(const char *question)
 	agent_build_model_request(&agent, &model, "analyzer", &model_request);
 	agent_call_model_with_retries(&model_request, &model, question,
 				      &model_response);
-	if (strcmp(model_response.status, "ok") == 0)
-		answer = "The configured OpenAI-compatible model endpoint returned a response. The local read-only telemetry and tool evidence are included for grounding.";
-	else if (strcmp(model_status, "configured") == 0)
-		answer = "The model backend is configured, but the model call did not complete successfully. The local read-only telemetry and tool evidence are included for fallback diagnostics.";
-	else
-		answer = "The AI agent MVP ran a local read-only diagnostic. Configure and enable a model backend to add model reasoning; local telemetry and policy findings are included in this response.";
+	if (strcmp(model_response.status, "ok") == 0 &&
+	    extract_openai_message_content(model_response.text, answer, sizeof(answer)) == 0) {
+		/* Use the model's assistant message as the user-facing answer. */
+	} else {
+		if (strcmp(model_response.status, "ok") == 0)
+			fallback_answer = "The configured OpenAI-compatible model endpoint returned a response. The local read-only telemetry and tool evidence are included for grounding.";
+		else if (strcmp(model_status, "configured") == 0)
+			fallback_answer = "The model backend is configured, but the model call did not complete successfully. The local read-only telemetry and tool evidence are included for fallback diagnostics.";
+		else
+			fallback_answer = "The AI agent MVP ran a local read-only diagnostic. Configure and enable a model backend to add model reasoning; local telemetry and policy findings are included in this response.";
+		snprintf(answer, sizeof(answer), "%s", fallback_answer);
+	}
 
 	snprintf(memory_summary, sizeof(memory_summary),
 		 "Diagnostic request %s: load %.2f/%.2f/%.2f, memory %.2f%%, model_status=%s",

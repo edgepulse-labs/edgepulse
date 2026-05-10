@@ -352,7 +352,7 @@ Testing and validation todo:
 - [x] 加入 shell 與 `ubus` tool output summarization 的 fixture tests。
 - [x] 驗證 AI agent disabled 與 enabled 兩種 package builds。
 - [ ] 驗證 OpenWrt One 安裝後 AI agent 預設停用。
-- [ ] 設定 UCI model parameters 後，驗證 configured remote model 可以回答 read-only diagnostic request。
+- [x] 設定 UCI model parameters 後，驗證 configured remote model 可以回答 read-only diagnostic request。
 - [ ] 驗證 LuCI interaction 與 settings pages 在 desktop 與 mobile layouts 上可用。
 
 Exit criteria:

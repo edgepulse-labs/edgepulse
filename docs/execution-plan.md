@@ -352,7 +352,7 @@ Testing and validation todo:
 - [x] Add fixture tests for shell and `ubus` tool output summarization.
 - [x] Validate package builds with AI agent disabled and enabled.
 - [ ] Validate installation on OpenWrt One with AI agent disabled by default.
-- [ ] Validate a configured remote model can answer a read-only diagnostic request after setting UCI model parameters.
+- [x] Validate a configured remote model can answer a read-only diagnostic request after setting UCI model parameters.
 - [ ] Validate LuCI interaction and settings pages on desktop and mobile layouts.
 
 Exit criteria:

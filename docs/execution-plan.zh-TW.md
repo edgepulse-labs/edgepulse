@@ -346,10 +346,10 @@ LuCI application todo:
 
 Testing and validation todo:
 
-- [ ] 加入 policy allow/deny decisions 與 command argument validation 的 unit tests。
-- [ ] 加入 model request construction、redaction、timeout handling、retry handling 與 fallback behavior 的 tests。
-- [ ] 加入 agent 與 model sections 的 UCI parsing tests。
-- [ ] 加入 shell 與 `ubus` tool output summarization 的 fixture tests。
+- [x] 加入 policy allow/deny decisions 與 command argument validation 的 unit tests。
+- [x] 加入 model request construction、redaction、timeout handling、retry handling 與 fallback behavior 的 tests。
+- [x] 加入 agent 與 model sections 的 UCI parsing tests。
+- [x] 加入 shell 與 `ubus` tool output summarization 的 fixture tests。
 - [x] 驗證 AI agent disabled 與 enabled 兩種 package builds。
 - [ ] 驗證 OpenWrt One 安裝後 AI agent 預設停用。
 - [ ] 設定 UCI model parameters 後，驗證 configured remote model 可以回答 read-only diagnostic request。

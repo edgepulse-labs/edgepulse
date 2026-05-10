@@ -11,10 +11,12 @@ DESTDIR ?=
 TARGET := edgepulse
 CTL_TARGET := edgepulse-ctl
 TEST_TARGET := tests/unit/test_edgepulse
+AGENT_TEST_TARGET := tests/unit/test_agent_ctl
 LIB_SRCS := src/edgepulse-lib/edgepulse.c
 DAEMON_SRCS := src/edgepulse-daemon/main.c
 CTL_SRCS := src/edgepulse-ctl/main.c
 TEST_SRCS := tests/unit/test_edgepulse.c
+AGENT_TEST_SRCS := tests/unit/test_agent_ctl.c
 
 .PHONY: all clean install test
 
@@ -29,11 +31,15 @@ $(CTL_TARGET): $(CTL_SRCS) $(LIB_SRCS) include/edgepulse.h
 $(TEST_TARGET): $(TEST_SRCS) $(LIB_SRCS) include/edgepulse.h
 	$(CC) $(CPPFLAGS) $(CFLAGS) -o $@ $(TEST_SRCS) $(LIB_SRCS) $(LDFLAGS) $(LDLIBS)
 
-test: $(TEST_TARGET)
+$(AGENT_TEST_TARGET): $(AGENT_TEST_SRCS) $(LIB_SRCS) include/edgepulse.h $(CTL_SRCS)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -o $@ $(AGENT_TEST_SRCS) $(LIB_SRCS) $(LDFLAGS) $(LDLIBS)
+
+test: $(TEST_TARGET) $(AGENT_TEST_TARGET)
 	./$(TEST_TARGET)
+	./$(AGENT_TEST_TARGET)
 
 clean:
-	rm -f $(TARGET) $(CTL_TARGET) $(TEST_TARGET)
+	rm -f $(TARGET) $(CTL_TARGET) $(TEST_TARGET) $(AGENT_TEST_TARGET)
 
 install: $(TARGET) $(CTL_TARGET)
 	$(INSTALL_DIR) $(DESTDIR)/usr/bin

@@ -346,10 +346,10 @@ LuCI application todo:
 
 Testing and validation todo:
 
-- [ ] Add unit tests for policy allow/deny decisions and command argument validation.
-- [ ] Add tests for model request construction, redaction, timeout handling, retry handling, and fallback behavior.
-- [ ] Add tests for UCI parsing of agent and model sections.
-- [ ] Add fixture tests for shell and `ubus` tool output summarization.
+- [x] Add unit tests for policy allow/deny decisions and command argument validation.
+- [x] Add tests for model request construction, redaction, timeout handling, retry handling, and fallback behavior.
+- [x] Add tests for UCI parsing of agent and model sections.
+- [x] Add fixture tests for shell and `ubus` tool output summarization.
 - [x] Validate package builds with AI agent disabled and enabled.
 - [ ] Validate installation on OpenWrt One with AI agent disabled by default.
 - [ ] Validate a configured remote model can answer a read-only diagnostic request after setting UCI model parameters.

@@ -64,7 +64,7 @@ Avoid splitting into many repositories during MVP. Repositories such as `edgepul
 For a remote git feed:
 
 ```text
-src-git edgepulse https://github.com/Pod-01-Nier/edgepulse-openwrt-feed.git
+src-git edgepulse https://github.com/edgepulse-labs/edgepulse-openwrt-feed.git
 ```
 
 For local package development:
@@ -76,13 +76,13 @@ src-link edgepulse /path/to/edgepulse-openwrt-feed
 For a branch-specific feed:
 
 ```text
-src-git edgepulse https://github.com/Pod-01-Nier/edgepulse-openwrt-feed.git;main
+src-git edgepulse https://github.com/edgepulse-labs/edgepulse-openwrt-feed.git;main
 ```
 
 For a pinned feed commit:
 
 ```text
-src-git edgepulse https://github.com/Pod-01-Nier/edgepulse-openwrt-feed.git^<commit-hash>
+src-git edgepulse https://github.com/edgepulse-labs/edgepulse-openwrt-feed.git^<commit-hash>
 ```
 
 ## OpenWrt Build Workflow

@@ -70,17 +70,18 @@ edgepulse-openwrt-feed/
 
 Todo:
 
-- [x] Add `packaging/openwrt-feed/edgepulse/Makefile`.
-- [x] Add `packaging/openwrt-feed/edgepulse/files/etc/config/edgepulse`.
-- [x] Add `packaging/openwrt-feed/edgepulse/files/etc/init.d/edgepulse`.
-- [x] Add `packaging/openwrt-feed/luci-app-edgepulse/Makefile`.
+- [x] Add `edgepulse-openwrt-feed/edgepulse/Makefile`.
+- [x] Add `edgepulse-openwrt-feed/edgepulse/files/etc/config/edgepulse`.
+- [x] Add `edgepulse-openwrt-feed/edgepulse/files/etc/init.d/edgepulse`.
+- [x] Add `edgepulse-openwrt-feed/luci-app-edgepulse/Makefile`.
 - [x] Add LuCI menu metadata.
 - [x] Add rpcd ACL metadata.
 - [x] Install both `edgepulse` and `edgepulse-ctl` into the OpenWrt package.
 - [x] Build `edgepulse-1.apk` in the local OpenWrt buildroot.
 - [x] Build `luci-app-edgepulse-1.apk` in the local OpenWrt buildroot.
 - [x] Install and verify both packages on OpenWrt One.
-- [x] Sync the feed copy into the standalone `edgepulse-openwrt-feed` repository for local OpenWrt builds.
+- [x] Move OpenWrt package and LuCI implementation ownership to the standalone `edgepulse-openwrt-feed` repository for local OpenWrt builds.
+- [x] Remove the obsolete in-repo OpenWrt feed package mirror and keep `packaging/openwrt-feed/README.md` as a pointer to the standalone feed repository.
 - [x] Add release/version workflow for source archives and OpenWrt package `PKG_RELEASE` updates.
 
 Initial dependencies:
@@ -302,7 +303,7 @@ Initial boundary:
 
 OpenWrt package and build configuration todo:
 
-- [x] Add an OpenWrt package build option in `packaging/openwrt-feed/edgepulse/Makefile` to include or exclude AI agent support at build time.
+- [x] Add an OpenWrt package build option in `edgepulse-openwrt-feed/edgepulse/Makefile` to include or exclude AI agent support at build time.
 - [x] Define package config symbols for AI agent defaults, such as `EDGEPULSE_ENABLE_AI_AGENT`, default model provider, default remote base URL, default model name, default local-only mode, and default policy profile.
 - [x] Avoid baking real secrets into firmware images by default; support a build-time API key placeholder only for development images and prefer runtime UCI or environment-based secret configuration.
 - [x] Decide whether the first package shape is an optional `edgepulse-agent` subpackage or a feature compiled into the existing `edgepulse` package.
@@ -312,7 +313,7 @@ OpenWrt package and build configuration todo:
 
 UCI configuration todo:
 
-- [x] Extend `packaging/openwrt-feed/edgepulse/files/etc/config/edgepulse` with an `agent` section containing `enabled`, `local_only`, `memory_enabled`, `shell_enabled`, `ubus_enabled`, `policy_profile`, request timeout, heartbeat interval, tool timeout, and max tool output size.
+- [x] Extend `edgepulse-openwrt-feed/edgepulse/files/etc/config/edgepulse` with an `agent` section containing `enabled`, `local_only`, `memory_enabled`, `shell_enabled`, `ubus_enabled`, `policy_profile`, request timeout, heartbeat interval, tool timeout, and max tool output size.
 - [x] Add model configuration sections for at least one remote OpenAI-compatible endpoint, including `enabled`, `role`, `base_url`, `model`, `api_key`, `api_key_env`, timeout, and retry settings.
 - [x] Add defaults that let the agent report a clear "not configured" status when no API key or local model endpoint is available.
 - [x] Support redacted handling for `api_key` in status output, logs, CLI commands, and LuCI.
@@ -368,6 +369,52 @@ Exit criteria:
 Reference:
 
 - [OpenWrt AI Agent project requirements plan](openwrt_ai_agent_requirements_plan.md)
+
+## Phase 8A: AI Agent Live Model Validation
+
+Status: validated on OpenWrt One
+
+Validate the installed OpenWrt One AI agent against the currently configured model service and make failures observable from the router.
+
+Live validation todo:
+
+- [x] Record the initial OpenWrt One agent/model state and confirm whether `local_only` is intentionally blocking remote model use.
+- [x] Run a local-only diagnostic and verify it returns local telemetry without calling the configured remote model.
+- [x] Temporarily enable remote model use and verify a diagnostic question reaches the configured OpenAI-compatible model, returns an answer, and keeps API keys redacted.
+- [x] Run a negative model-path test with an unreachable endpoint and verify fallback behavior is clear.
+- [x] Verify read-only policy evidence, tool output, memory entries, and SQLite audit records are written after diagnostic requests.
+- [x] Verify `logread` contains useful AI agent request/model/tool summaries with secrets redacted.
+- [x] Verify LuCI backend commands can read status/memory and submit a diagnostic request using the same agent path.
+- [x] Restore the OpenWrt One agent/model settings to the pre-test state after validation.
+
+Live validation scenarios:
+
+- Scenario 1: Agent enabled with `local_only=1`; ask for WAN/DNS health and expect `model_request.status=local_only`.
+- Scenario 2: Agent enabled with `local_only=0`; ask for CPU/memory/network health and expect `model_response.status=ok`.
+- Scenario 3: Remote endpoint intentionally invalid; expect a non-OK model response plus a local fallback answer.
+- Scenario 4: Read-only policy remains active; allowed tools run and destructive operations remain outside the exposed agent action set.
+- Scenario 5: LuCI helper path `/usr/libexec/edgepulse-luci agent-diagnose` produces the same structured diagnostic output used by the web UI.
+
+Validation notes:
+
+- `edgepulse-ctl agent ask` now logs redacted request, tool, model, and policy summaries to `logread` under `edgepulse-agent`.
+- `edgepulse-ctl agent audit list` exposes recent SQLite audit events for router-side inspection.
+- HTTPS/OpenAI-compatible model calls use `uclient-fetch`; API keys are redacted from JSON output and syslog summaries.
+- The model response JSON and syslog model summary now include `finish_reason`, `reasoning_present`, `no_think`, and `max_tokens` so reasoning-only responses are visible from OpenWrt.
+- `no_think` is configurable, but the configured Qwen OpenAI-compatible endpoint did not reliably honor `/no_think`; with `no_think=1` it repeatedly spent the full response budget on `reasoning_content`.
+- The validated settings for the current OpenWrt One model are `no_think=0`, `max_tokens=2048`, `timeout_sec=60`, and `retry_count=0`; this produced `finish_reason=stop` and usable assistant content for the diagnostic summary.
+- The default model prompt was reduced to a compact telemetry field summary. Full tool evidence remains in the structured agent output and audit/log records.
+- The MVP still falls back to a local telemetry summary when a model returns HTTP 200 without assistant content.
+- OpenWrt One was left with the agent enabled, remote model use enabled, and the validated model settings applied.
+
+Follow-up model selection work:
+
+- [x] Add CLI model inventory commands: `edgepulse-ctl agent models list` and `edgepulse-ctl agent models remote-list [section]`.
+- [x] Fetch OpenAI-compatible `/models` from the configured endpoint using the configured token, while keeping API keys redacted.
+- [x] Add `priority` to model sections so enabled model configs can be ordered for inference.
+- [x] Try configured models by priority and fall back to the next ready model when the current model is unreachable or returns no usable assistant content.
+- [x] Expose model priority, remote model choices, and copyable model config snippets through LuCI.
+- [x] Validate failover on OpenWrt One by adding a temporary unreachable higher-priority model and confirming the agent falls back to the working `remote_reasoner`.
 
 ## MVP Definition
 

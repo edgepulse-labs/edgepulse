@@ -1,11 +1,28 @@
 # EdgePulse OpenWrt Feed
 
-This directory is a development copy of the OpenWrt feed layout planned for the standalone `edgepulse-openwrt-feed` repository.
+This directory is a pointer to the standalone OpenWrt feed repository. It
+intentionally does not contain package recipe copies.
+
+The source of truth for OpenWrt package metadata is:
+
+```text
+https://github.com/edgepulse-labs/edgepulse-openwrt-feed
+```
+
+For local development, this is usually checked out next to this repository as
+`../edgepulse-openwrt-feed/`.
+
+Ownership split:
+
+- This repository owns the EdgePulse source code, tests, scripts, and docs.
+- `edgepulse-openwrt-feed` owns the OpenWrt `edgepulse` package recipe, LuCI
+  package recipe, default UCI config, init scripts, uci-defaults, and LuCI
+  application files.
 
 Use it from an OpenWrt buildroot with a local feed line:
 
 ```text
-src-link edgepulse /path/to/edgepulse/packaging/openwrt-feed
+src-link edgepulse /path/to/edgepulse-openwrt-feed
 ```
 
 Then update and install the feed:
@@ -23,7 +40,10 @@ make package/feeds/edgepulse/edgepulse/compile V=s EDGEPULSE_LOCAL_SOURCE=/path/
 
 ## AI Agent Build Option
 
-The EdgePulse AI agent MVP is optional in OpenWrt package builds. To include it in an image or module build, enable the package symbol and the agent feature symbol:
+The EdgePulse AI agent MVP is optional in OpenWrt package builds. Configure the
+package symbols in the standalone feed repository and OpenWrt buildroot, not in
+this directory. To include it in an image or module build, enable the package
+symbol and the agent feature symbol:
 
 ```text
 CONFIG_PACKAGE_edgepulse=m

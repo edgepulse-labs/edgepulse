@@ -4,10 +4,12 @@
 #include <fcntl.h>
 #include <netdb.h>
 #include <signal.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <syslog.h>
 #include <sys/time.h>
 #include <sys/types.h>
 #include <sys/wait.h>
@@ -17,6 +19,7 @@
 #include <sqlite3.h>
 
 #define AGENT_STR_SIZE 256
+#define AGENT_MAX_MODELS 8
 
 #ifndef EDGEPULSE_ENABLE_AI_AGENT
 #define EDGEPULSE_AGENT_UNUSED __attribute__((unused))
@@ -44,6 +47,9 @@ struct agent_model_config {
 	int configured;
 	int timeout_sec;
 	int retry_count;
+	int max_tokens;
+	int no_think;
+	int priority;
 	char name[64];
 	char role[128];
 	char base_url[AGENT_STR_SIZE];
@@ -72,7 +78,9 @@ struct agent_model_response {
 	char status[64];
 	int attempts;
 	int http_status;
-	char text[1024];
+	int reasoning_present;
+	char text[8192];
+	char finish_reason[64];
 };
 
 static void json_escape(FILE *fp, const char *value)
@@ -115,6 +123,19 @@ static void print_json_string(const char *value)
 	json_escape(stdout, value ? value : "");
 	putchar('"');
 }
+
+#ifdef EDGEPULSE_ENABLE_AI_AGENT
+static void agent_syslog(int priority, const char *fmt, ...)
+{
+	va_list ap;
+
+	openlog("edgepulse-agent", LOG_PID, LOG_DAEMON);
+	va_start(ap, fmt);
+	vsyslog(priority, fmt, ap);
+	va_end(ap);
+	closelog();
+}
+#endif
 
 static void strip_quotes(char *value)
 {
@@ -168,11 +189,28 @@ static int parse_int_value(const char *value, int default_value)
 	return default_value;
 }
 
+static void init_agent_model_config(struct agent_model_config *model, int index)
+{
+	memset(model, 0, sizeof(*model));
+	model->timeout_sec = 60;
+	model->retry_count = 0;
+	model->max_tokens = 2048;
+	model->no_think = 0;
+	model->priority = 100 + index;
+#ifdef EDGEPULSE_AI_DEFAULT_BASE_URL
+	snprintf(model->base_url, sizeof(model->base_url), "%s",
+		 EDGEPULSE_AI_DEFAULT_BASE_URL);
+#endif
+#ifdef EDGEPULSE_AI_DEFAULT_MODEL
+	snprintf(model->model, sizeof(model->model), "%s",
+		 EDGEPULSE_AI_DEFAULT_MODEL);
+#endif
+}
+
 static void init_agent_config(struct agent_config *agent,
 			      struct agent_model_config *model)
 {
 	memset(agent, 0, sizeof(*agent));
-	memset(model, 0, sizeof(*model));
 	agent->enabled = 0;
 	agent->local_only = 1;
 	agent->memory_enabled = 1;
@@ -184,28 +222,50 @@ static void init_agent_config(struct agent_config *agent,
 	agent->max_tool_output_bytes = 8192;
 	snprintf(agent->policy_profile, sizeof(agent->policy_profile), "%s", "read_only");
 	snprintf(agent->db_path, sizeof(agent->db_path), "%s", EDGEPULSE_DB_PATH);
-	model->timeout_sec = 30;
-	model->retry_count = 1;
-#ifdef EDGEPULSE_AI_DEFAULT_BASE_URL
-	snprintf(model->base_url, sizeof(model->base_url), "%s",
-		 EDGEPULSE_AI_DEFAULT_BASE_URL);
-#endif
-#ifdef EDGEPULSE_AI_DEFAULT_MODEL
-	snprintf(model->model, sizeof(model->model), "%s",
-		 EDGEPULSE_AI_DEFAULT_MODEL);
-#endif
+	init_agent_model_config(model, 0);
 }
 
-static int read_agent_config(struct agent_config *agent,
-			     struct agent_model_config *model)
+static void finalize_agent_model_config(struct agent_model_config *model)
+{
+	model->configured = model->enabled && model->base_url[0] != '\0' &&
+		model->model[0] != '\0' &&
+		(strncmp(model->base_url, "http://127.0.0.1", 16) == 0 ||
+		 strncmp(model->base_url, "http://localhost", 16) == 0 ||
+		 model->api_key[0] != '\0' ||
+		 (model->api_key_env[0] != '\0' && getenv(model->api_key_env)));
+}
+
+static void sort_agent_models(struct agent_model_config *models, int count)
+{
+	for (int i = 0; i < count; i++) {
+		for (int j = i + 1; j < count; j++) {
+			if (models[j].priority < models[i].priority) {
+				struct agent_model_config tmp = models[i];
+				models[i] = models[j];
+				models[j] = tmp;
+			}
+		}
+	}
+}
+
+static int read_agent_config_models(struct agent_config *agent,
+				    struct agent_model_config *models,
+				    int max_models, int *model_count)
 {
 	const char *path = getenv("EDGEPULSE_CONFIG_PATH");
 	FILE *fp;
 	char line[512];
 	char section_type[64] = "";
 	char section_name[64] = "";
+	struct agent_model_config primary;
+	int current_model = -1;
+	int count = 0;
 
-	init_agent_config(agent, model);
+	init_agent_config(agent, &primary);
+	if (models && max_models > 0)
+		memset(models, 0, (size_t)max_models * sizeof(models[0]));
+	if (model_count)
+		*model_count = 0;
 	if (!path || path[0] == '\0')
 		path = EDGEPULSE_CONFIG_PATH;
 
@@ -231,9 +291,14 @@ static int read_agent_config(struct agent_config *agent,
 			snprintf(section_type, sizeof(section_type), "%s", key ? key : "");
 			snprintf(section_name, sizeof(section_name), "%s", name);
 
-			if (strcmp(section_type, "model") == 0 && !model->present) {
-				model->present = 1;
-				snprintf(model->name, sizeof(model->name), "%s", section_name);
+			current_model = -1;
+			if (strcmp(section_type, "model") == 0 && models && count < max_models) {
+				current_model = count;
+				init_agent_model_config(&models[count], count);
+				models[count].present = 1;
+				snprintf(models[count].name, sizeof(models[count].name), "%s",
+					 section_name[0] ? section_name : "model");
+				count++;
 			}
 			continue;
 		}
@@ -273,8 +338,9 @@ static int read_agent_config(struct agent_config *agent,
 				agent->max_tool_output_bytes = parse_int_value(value, agent->max_tool_output_bytes);
 			else if (strcmp(key, "policy_profile") == 0)
 				snprintf(agent->policy_profile, sizeof(agent->policy_profile), "%s", value);
-		} else if (strcmp(section_type, "model") == 0 &&
-			   strcmp(section_name, model->name) == 0) {
+		} else if (strcmp(section_type, "model") == 0 && current_model >= 0) {
+			struct agent_model_config *model = &models[current_model];
+
 			if (strcmp(key, "enabled") == 0)
 				model->enabled = parse_bool_value(value, model->enabled);
 			else if (strcmp(key, "role") == 0)
@@ -291,19 +357,42 @@ static int read_agent_config(struct agent_config *agent,
 				model->timeout_sec = parse_int_value(value, model->timeout_sec);
 			else if (strcmp(key, "retry_count") == 0)
 				model->retry_count = parse_int_value(value, model->retry_count);
+			else if (strcmp(key, "max_tokens") == 0)
+				model->max_tokens = parse_int_value(value, model->max_tokens);
+			else if (strcmp(key, "no_think") == 0)
+				model->no_think = parse_bool_value(value, model->no_think);
+			else if (strcmp(key, "priority") == 0)
+				model->priority = parse_int_value(value, model->priority);
 		}
 	}
 
 	fclose(fp);
-	model->configured = model->enabled && model->base_url[0] != '\0' &&
-		model->model[0] != '\0' &&
-		(strncmp(model->base_url, "http://127.0.0.1", 16) == 0 ||
-		 strncmp(model->base_url, "http://localhost", 16) == 0 ||
-		 model->api_key[0] != '\0' ||
-		 (model->api_key_env[0] != '\0' && getenv(model->api_key_env)));
+	for (int i = 0; i < count; i++)
+		finalize_agent_model_config(&models[i]);
+	sort_agent_models(models, count);
+	if (model_count)
+		*model_count = count;
 	return 0;
 }
 
+static int read_agent_config(struct agent_config *agent,
+			     struct agent_model_config *model)
+{
+	struct agent_model_config models[AGENT_MAX_MODELS];
+	int model_count = 0;
+	int rc = read_agent_config_models(agent, models, AGENT_MAX_MODELS,
+					  &model_count);
+
+	if (model_count > 0)
+		*model = models[0];
+	else
+		init_agent_model_config(model, 0);
+	return rc;
+}
+
+static const char *agent_model_status(const struct agent_config *agent,
+				      const struct agent_model_config *model)
+				      __attribute__((unused));
 static const char *agent_model_status(const struct agent_config *agent,
 				      const struct agent_model_config *model)
 {
@@ -318,6 +407,27 @@ static const char *agent_model_status(const struct agent_config *agent,
 	if (!model->configured)
 		return "missing_credentials_or_model";
 	return "configured";
+}
+
+static const char *agent_models_status(const struct agent_config *agent,
+				       const struct agent_model_config *models,
+				       int model_count)
+{
+	if (!agent->enabled)
+		return "agent_disabled";
+	if (agent->local_only)
+		return "local_only";
+	if (model_count <= 0)
+		return "not_configured";
+	for (int i = 0; i < model_count; i++) {
+		if (models[i].configured)
+			return "configured";
+	}
+	for (int i = 0; i < model_count; i++) {
+		if (models[i].enabled)
+			return "missing_credentials_or_model";
+	}
+	return "model_disabled";
 }
 
 static int agent_config_is_valid_url(const char *value)
@@ -342,6 +452,8 @@ static int agent_config_has_warnings(const struct agent_config *agent,
 	if (!agent_config_is_valid_url(model->base_url))
 		return 1;
 	if (model->enabled && model->model[0] == '\0')
+		return 1;
+	if (model->max_tokens < 128 || model->max_tokens > 8192)
 		return 1;
 	return 0;
 }
@@ -375,6 +487,8 @@ static void print_agent_validation(const struct agent_config *agent,
 		PRINT_VALIDATION_WARNING("Remote model base_url should use https, localhost, or 127.0.0.1.");
 	if (model->enabled && model->model[0] == '\0')
 		PRINT_VALIDATION_WARNING("Enabled model sections must include a model name.");
+	if (model->max_tokens < 128 || model->max_tokens > 8192)
+		PRINT_VALIDATION_WARNING("model max_tokens should be between 128 and 8192.");
 
 #undef PRINT_VALIDATION_WARNING
 
@@ -722,10 +836,12 @@ static int parse_local_http_url(const char *url, char *host, size_t host_size,
 	return 0;
 }
 
-static void build_model_payload(char *payload, size_t size, const char *model,
+static void build_model_payload(char *payload, size_t size,
+				const struct agent_model_config *model,
 				const char *question)
 {
-	char escaped_question[512];
+	char escaped_question[2048];
+	const char *system_prompt;
 	char *out = escaped_question;
 	size_t remaining = sizeof(escaped_question);
 	const unsigned char *p = (const unsigned char *)(question ? question : "");
@@ -748,9 +864,14 @@ static void build_model_payload(char *payload, size_t size, const char *model,
 	}
 	*out = '\0';
 
+	system_prompt = model->no_think ?
+		"EdgePulse OpenWrt diagnostics. Final answer only. No reasoning. /no_think" :
+		"EdgePulse OpenWrt diagnostics. Return a concise final answer.";
+
 	snprintf(payload, size,
-		 "{\"model\":\"%s\",\"messages\":[{\"role\":\"system\",\"content\":\"You are EdgePulse, a read-only OpenWrt diagnostic assistant. Use only the provided local tool evidence.\"},{\"role\":\"user\",\"content\":\"%s\"}],\"stream\":false}",
-		 model, escaped_question);
+		 "{\"model\":\"%s\",\"messages\":[{\"role\":\"system\",\"content\":\"%s\"},{\"role\":\"user\",\"content\":\"%s\"}],\"stream\":false,\"temperature\":0,\"max_tokens\":%d}",
+		 model->model, system_prompt, escaped_question,
+		 model->max_tokens > 0 ? model->max_tokens : 2048);
 }
 
 static const char *agent_model_api_key(const struct agent_model_config *model)
@@ -814,6 +935,58 @@ static int extract_openai_message_content(const char *body, char *out, size_t ou
 	return used > 0 ? 0 : -1;
 }
 
+static int extract_openai_finish_reason(const char *body, char *out, size_t out_size)
+{
+	const char *key;
+	const char *cursor;
+	size_t used = 0;
+
+	if (!body || !out || out_size == 0)
+		return -1;
+
+	key = strstr(body, "\"finish_reason\"");
+	if (!key)
+		return -1;
+	cursor = strchr(key + 15, ':');
+	if (!cursor)
+		return -1;
+	cursor++;
+	while (*cursor == ' ' || *cursor == '\t' || *cursor == '\n' || *cursor == '\r')
+		cursor++;
+	if (*cursor != '"')
+		return -1;
+	cursor++;
+
+	while (*cursor && *cursor != '"' && used + 1 < out_size)
+		out[used++] = *cursor++;
+
+	out[used] = '\0';
+	return used > 0 ? 0 : -1;
+}
+
+static int openai_has_reasoning_content(const char *body)
+{
+	const char *key;
+	const char *cursor;
+
+	if (!body)
+		return 0;
+
+	key = strstr(body, "\"reasoning_content\"");
+	if (!key)
+		return 0;
+	cursor = strchr(key + 19, ':');
+	if (!cursor)
+		return 0;
+	cursor++;
+	while (*cursor == ' ' || *cursor == '\t' || *cursor == '\n' || *cursor == '\r')
+		cursor++;
+	if (*cursor != '"')
+		return 0;
+	cursor++;
+	return *cursor != '"';
+}
+
 static int agent_call_local_model(const struct agent_model_request *request,
 				  const struct agent_model_config *model,
 				  const char *question,
@@ -825,8 +998,8 @@ static int agent_call_local_model(const struct agent_model_request *request,
 	char host[64];
 	char port[16];
 	char path[192];
-	char payload[1024];
-	char header[1536];
+	char payload[4096];
+	char header[5120];
 	char auth_header[384] = "";
 	char buffer[1024];
 	struct timeval timeout;
@@ -842,7 +1015,7 @@ static int agent_call_local_model(const struct agent_model_request *request,
 		return -1;
 	}
 
-	build_model_payload(payload, sizeof(payload), model->model, question);
+	build_model_payload(payload, sizeof(payload), model, question);
 
 	memset(&hints, 0, sizeof(hints));
 	hints.ai_family = AF_UNSPEC;
@@ -903,8 +1076,6 @@ static int agent_call_local_model(const struct agent_model_request *request,
 			used += copy;
 			response->text[used] = '\0';
 		}
-		if (used >= sizeof(response->text) - 1)
-			break;
 	}
 	close(sock);
 
@@ -926,6 +1097,220 @@ static int agent_call_local_model(const struct agent_model_request *request,
 	return strcmp(response->status, "ok") == 0 ? 0 : -1;
 }
 
+static int agent_call_uclient_model(const struct agent_model_request *request,
+				    const struct agent_model_config *model,
+				    const char *question,
+				    struct agent_model_response *response)
+{
+	char payload[4096];
+	char post_path[] = "/tmp/edgepulse-agent-payload.XXXXXX";
+	char timeout_arg[16];
+	char auth_arg[384];
+	char content_type_arg[] = "--header=Content-Type: application/json";
+	const char *api_key = agent_model_api_key(model);
+	const char *argv[14];
+	int post_fd;
+	int pipe_fd[2];
+	int argc = 0;
+	pid_t pid;
+	ssize_t nread;
+	size_t used = 0;
+	int status = 0;
+	char buffer[512];
+
+	build_model_payload(payload, sizeof(payload), model, question);
+	post_fd = mkstemp(post_path);
+	if (post_fd < 0) {
+		snprintf(response->status, sizeof(response->status), "%s",
+			 "tempfile_error");
+		return -1;
+	}
+	if (write(post_fd, payload, strlen(payload)) < 0) {
+		close(post_fd);
+		unlink(post_path);
+		snprintf(response->status, sizeof(response->status), "%s",
+			 "write_error");
+		return -1;
+	}
+	close(post_fd);
+
+	if (pipe(pipe_fd) != 0) {
+		unlink(post_path);
+		snprintf(response->status, sizeof(response->status), "%s",
+			 "pipe_error");
+		return -1;
+	}
+
+	snprintf(timeout_arg, sizeof(timeout_arg), "%d",
+		 model->timeout_sec > 0 ? model->timeout_sec : 30);
+	argv[argc++] = "uclient-fetch";
+	argv[argc++] = "-q";
+	argv[argc++] = "-T";
+	argv[argc++] = timeout_arg;
+	argv[argc++] = "-O";
+	argv[argc++] = "-";
+	argv[argc++] = "--post-file";
+	argv[argc++] = post_path;
+	argv[argc++] = content_type_arg;
+	if (api_key[0] != '\0') {
+		snprintf(auth_arg, sizeof(auth_arg),
+			 "--header=Authorization: Bearer %s", api_key);
+		argv[argc++] = auth_arg;
+	}
+	argv[argc++] = request->endpoint;
+	argv[argc] = NULL;
+
+	pid = fork();
+	if (pid < 0) {
+		close(pipe_fd[0]);
+		close(pipe_fd[1]);
+		unlink(post_path);
+		snprintf(response->status, sizeof(response->status), "%s",
+			 "fork_error");
+		return -1;
+	}
+
+	if (pid == 0) {
+		close(pipe_fd[0]);
+		dup2(pipe_fd[1], STDOUT_FILENO);
+		dup2(pipe_fd[1], STDERR_FILENO);
+		close(pipe_fd[1]);
+		execvp("uclient-fetch", (char *const *)argv);
+		_exit(127);
+	}
+
+	close(pipe_fd[1]);
+	while ((nread = read(pipe_fd[0], buffer, sizeof(buffer))) > 0) {
+		size_t copy = (size_t)nread;
+		if (copy > sizeof(response->text) - used - 1)
+			copy = sizeof(response->text) - used - 1;
+		if (copy > 0) {
+			memcpy(response->text + used, buffer, copy);
+			used += copy;
+			response->text[used] = '\0';
+		}
+	}
+	close(pipe_fd[0]);
+	waitpid(pid, &status, 0);
+	unlink(post_path);
+
+	if (WIFEXITED(status) && WEXITSTATUS(status) == 0) {
+		response->http_status = 200;
+		snprintf(response->status, sizeof(response->status), "%s", "ok");
+		return 0;
+	}
+
+	response->http_status = 0;
+	snprintf(response->status, sizeof(response->status), "%s",
+		 WIFEXITED(status) && WEXITSTATUS(status) == 127 ?
+		 "transport_unavailable" : "fetch_error");
+	return -1;
+}
+
+static int agent_fetch_remote_models(const struct agent_model_config *model,
+				     char *body, size_t body_size,
+				     char *status_out, size_t status_size)
+{
+	char timeout_arg[16];
+	char auth_arg[384];
+	char endpoint[AGENT_STR_SIZE + 32];
+	const char *api_key = agent_model_api_key(model);
+	const char *argv[12];
+	int pipe_fd[2];
+	int argc = 0;
+	pid_t pid;
+	ssize_t nread;
+	size_t used = 0;
+	int status = 0;
+	char buffer[512];
+
+	if (!body || body_size == 0 || !status_out || status_size == 0)
+		return -1;
+	body[0] = '\0';
+	status_out[0] = '\0';
+
+	if (model->base_url[0] == '\0') {
+		snprintf(status_out, status_size, "%s", "missing_base_url");
+		return -1;
+	}
+
+	snprintf(endpoint, sizeof(endpoint), "%s/models", model->base_url);
+	snprintf(timeout_arg, sizeof(timeout_arg), "%d",
+		 model->timeout_sec > 0 ? model->timeout_sec : 30);
+
+	argv[argc++] = "uclient-fetch";
+	argv[argc++] = "-q";
+	argv[argc++] = "-T";
+	argv[argc++] = timeout_arg;
+	argv[argc++] = "-O";
+	argv[argc++] = "-";
+	if (api_key[0] != '\0') {
+		snprintf(auth_arg, sizeof(auth_arg),
+			 "--header=Authorization: Bearer %s", api_key);
+		argv[argc++] = auth_arg;
+	}
+	argv[argc++] = endpoint;
+	argv[argc] = NULL;
+
+	if (pipe(pipe_fd) != 0) {
+		snprintf(status_out, status_size, "%s", "pipe_error");
+		return -1;
+	}
+
+	pid = fork();
+	if (pid < 0) {
+		close(pipe_fd[0]);
+		close(pipe_fd[1]);
+		snprintf(status_out, status_size, "%s", "fork_error");
+		return -1;
+	}
+
+	if (pid == 0) {
+		close(pipe_fd[0]);
+		dup2(pipe_fd[1], STDOUT_FILENO);
+		dup2(pipe_fd[1], STDERR_FILENO);
+		close(pipe_fd[1]);
+		execvp("uclient-fetch", (char *const *)argv);
+		_exit(127);
+	}
+
+	close(pipe_fd[1]);
+	while ((nread = read(pipe_fd[0], buffer, sizeof(buffer))) > 0) {
+		size_t copy = (size_t)nread;
+		if (copy > body_size - used - 1)
+			copy = body_size - used - 1;
+		if (copy > 0) {
+			memcpy(body + used, buffer, copy);
+			used += copy;
+			body[used] = '\0';
+		}
+	}
+	close(pipe_fd[0]);
+	waitpid(pid, &status, 0);
+
+	if (WIFEXITED(status) && WEXITSTATUS(status) == 0) {
+		snprintf(status_out, status_size, "%s", "ok");
+		return 0;
+	}
+
+	snprintf(status_out, status_size, "%s",
+		 WIFEXITED(status) && WEXITSTATUS(status) == 127 ?
+		 "transport_unavailable" : "fetch_error");
+	return -1;
+}
+
+static int agent_call_model_once(const struct agent_model_request *request,
+				 const struct agent_model_config *model,
+				 const char *question,
+				 struct agent_model_response *response)
+{
+	if (strncmp(request->endpoint, "http://127.0.0.1", 16) == 0 ||
+	    strncmp(request->endpoint, "http://localhost", 16) == 0)
+		return agent_call_local_model(request, model, question, response);
+
+	return agent_call_uclient_model(request, model, question, response);
+}
+
 static void agent_call_model_with_retries(const struct agent_model_request *request,
 					  const struct agent_model_config *model,
 					  const char *question,
@@ -941,8 +1326,14 @@ static void agent_call_model_with_retries(const struct agent_model_request *requ
 
 	for (int i = 0; i < max_attempts; i++) {
 		response->attempts++;
-		if (agent_call_local_model(request, model, question, response) == 0)
+		if (agent_call_model_once(request, model, question, response) == 0) {
+			extract_openai_finish_reason(response->text,
+						     response->finish_reason,
+						     sizeof(response->finish_reason));
+			response->reasoning_present =
+				openai_has_reasoning_content(response->text);
 			return;
+		}
 		if (strcmp(response->status, "unsupported_transport") == 0)
 			return;
 	}
@@ -956,6 +1347,11 @@ static void print_agent_model_response_json(const struct agent_model_response *r
 	printf(",\n");
 	printf("    \"attempts\": %d,\n", response->attempts);
 	printf("    \"http_status\": %d,\n", response->http_status);
+	printf("    \"finish_reason\": ");
+	print_json_string(response->finish_reason);
+	printf(",\n");
+	printf("    \"reasoning_present\": %s,\n",
+	       response->reasoning_present ? "true" : "false");
 	printf("    \"body_preview\": ");
 	print_json_string(response->text);
 	printf("\n");
@@ -1240,12 +1636,54 @@ static int print_export(int window_sec)
 	return rc == SQLITE_DONE ? 0 : 1;
 }
 
+static void print_agent_model_config_json(const struct agent_model_config *model)
+{
+	printf("{\n");
+	printf("      \"present\": %s,\n", model->present ? "true" : "false");
+	printf("      \"enabled\": %s,\n", model->enabled ? "true" : "false");
+	printf("      \"configured\": %s,\n", model->configured ? "true" : "false");
+	printf("      \"name\": ");
+	print_json_string(model->name);
+	printf(",\n");
+	printf("      \"priority\": %d,\n", model->priority);
+	printf("      \"role\": ");
+	print_json_string(model->role);
+	printf(",\n");
+	printf("      \"base_url\": ");
+	print_json_string(model->base_url);
+	printf(",\n");
+	printf("      \"model\": ");
+	print_json_string(model->model);
+	printf(",\n");
+	printf("      \"api_key_source_configured\": %s,\n",
+	       (model->api_key[0] != '\0' || model->api_key_env[0] != '\0') ? "true" : "false");
+	printf("      \"api_key_available\": %s,\n",
+	       (model->api_key[0] != '\0' ||
+		(model->api_key_env[0] != '\0' && getenv(model->api_key_env))) ? "true" : "false");
+	printf("      \"api_key_env\": ");
+	print_json_string(model->api_key_env);
+	printf(",\n");
+	printf("      \"timeout_sec\": %d,\n", model->timeout_sec);
+	printf("      \"retry_count\": %d,\n", model->retry_count);
+	printf("      \"max_tokens\": %d,\n", model->max_tokens);
+	printf("      \"no_think\": %s\n", model->no_think ? "true" : "false");
+	printf("    }");
+}
+
 static int EDGEPULSE_AGENT_UNUSED print_agent_status(void)
 {
 	struct agent_config agent;
+	struct agent_model_config models[AGENT_MAX_MODELS];
 	struct agent_model_config model;
-	int config_rc = read_agent_config(&agent, &model);
-	const char *status = agent_model_status(&agent, &model);
+	int model_count = 0;
+	int config_rc = read_agent_config_models(&agent, models, AGENT_MAX_MODELS,
+						 &model_count);
+	const char *status = agent_models_status(&agent, models, model_count);
+
+	if (model_count > 0)
+		model = models[0];
+	else
+		init_agent_model_config(&model, 0);
 
 	printf("{\n");
 	printf("  \"agent\": {\n");
@@ -1272,6 +1710,7 @@ static int EDGEPULSE_AGENT_UNUSED print_agent_status(void)
 	printf("    \"name\": ");
 	print_json_string(model.name);
 	printf(",\n");
+	printf("    \"priority\": %d,\n", model.priority);
 	printf("    \"role\": ");
 	print_json_string(model.role);
 	printf(",\n");
@@ -1290,8 +1729,19 @@ static int EDGEPULSE_AGENT_UNUSED print_agent_status(void)
 	print_json_string(model.api_key_env);
 	printf(",\n");
 	printf("    \"timeout_sec\": %d,\n", model.timeout_sec);
-	printf("    \"retry_count\": %d\n", model.retry_count);
+	printf("    \"retry_count\": %d,\n", model.retry_count);
+	printf("    \"max_tokens\": %d,\n", model.max_tokens);
+	printf("    \"no_think\": %s\n", model.no_think ? "true" : "false");
 	printf("  },\n");
+	printf("  \"models\": [\n");
+	for (int i = 0; i < model_count; i++) {
+		if (i > 0)
+			printf(",\n");
+		printf("    ");
+		print_agent_model_config_json(&models[i]);
+	}
+	printf("\n");
+	printf("  ],\n");
 	printf("  \"status\": ");
 	print_json_string(status);
 	printf(",\n");
@@ -1303,6 +1753,121 @@ static int EDGEPULSE_AGENT_UNUSED print_agent_status(void)
 	printf("}\n");
 
 	return 0;
+}
+
+static int EDGEPULSE_AGENT_UNUSED print_agent_models_list(void)
+{
+	struct agent_config agent;
+	struct agent_model_config models[AGENT_MAX_MODELS];
+	int model_count = 0;
+
+	read_agent_config_models(&agent, models, AGENT_MAX_MODELS, &model_count);
+
+	printf("{\n");
+	printf("  \"status\": \"ok\",\n");
+	printf("  \"models\": [\n");
+	for (int i = 0; i < model_count; i++) {
+		if (i > 0)
+			printf(",\n");
+		printf("    ");
+		print_agent_model_config_json(&models[i]);
+	}
+	printf("\n");
+	printf("  ]\n");
+	printf("}\n");
+	return 0;
+}
+
+static void print_remote_model_ids(const char *body)
+{
+	const char *cursor = body;
+	int first = 1;
+
+	printf("  \"models\": [\n");
+	while (cursor && (cursor = strstr(cursor, "\"id\"")) != NULL) {
+		const char *value = strchr(cursor + 4, ':');
+		char id[256];
+		size_t used = 0;
+
+		if (!value)
+			break;
+		value++;
+		while (*value == ' ' || *value == '\t' || *value == '\n' || *value == '\r')
+			value++;
+		if (*value != '"') {
+			cursor = value;
+			continue;
+		}
+		value++;
+		while (*value && *value != '"' && used + 1 < sizeof(id)) {
+			if (*value == '\\' && value[1])
+				value++;
+			id[used++] = *value++;
+		}
+		id[used] = '\0';
+		if (used == 0) {
+			cursor = value;
+			continue;
+		}
+		if (!first)
+			printf(",\n");
+		printf("    { \"id\": ");
+		print_json_string(id);
+		printf(" }");
+		first = 0;
+		cursor = value;
+	}
+	printf("\n");
+	printf("  ]");
+}
+
+static int EDGEPULSE_AGENT_UNUSED print_agent_remote_models(const char *section)
+{
+	struct agent_config agent;
+	struct agent_model_config models[AGENT_MAX_MODELS];
+	const struct agent_model_config *model = NULL;
+	int model_count = 0;
+	char body[8192];
+	char fetch_status[64];
+
+	read_agent_config_models(&agent, models, AGENT_MAX_MODELS, &model_count);
+	for (int i = 0; i < model_count; i++) {
+		if ((section && section[0] != '\0' && strcmp(models[i].name, section) == 0) ||
+		    ((!section || section[0] == '\0') && models[i].enabled)) {
+			model = &models[i];
+			break;
+		}
+	}
+	if (!model && model_count > 0)
+		model = &models[0];
+
+	printf("{\n");
+	if (!model) {
+		printf("  \"status\": \"not_configured\",\n");
+		printf("  \"models\": []\n");
+		printf("}\n");
+		return 0;
+	}
+
+	agent_fetch_remote_models(model, body, sizeof(body), fetch_status,
+				  sizeof(fetch_status));
+	printf("  \"status\": ");
+	print_json_string(fetch_status);
+	printf(",\n");
+	printf("  \"provider\": ");
+	print_json_string(model->name);
+	printf(",\n");
+	printf("  \"base_url\": ");
+	print_json_string(model->base_url);
+	printf(",\n");
+	printf("  \"api_key\": \"redacted\",\n");
+	print_remote_model_ids(body);
+	printf(",\n");
+	printf("  \"body_preview\": ");
+	print_json_string(body);
+	printf("\n");
+	printf("}\n");
+	return strcmp(fetch_status, "ok") == 0 ? 0 : 1;
 }
 
 static void print_agent_findings(const struct edgepulse_snapshot *snapshot,
@@ -1351,6 +1916,7 @@ static void print_agent_findings(const struct edgepulse_snapshot *snapshot,
 static int EDGEPULSE_AGENT_UNUSED print_agent_diagnose(const char *question)
 {
 	struct agent_config agent;
+	struct agent_model_config models[AGENT_MAX_MODELS];
 	struct agent_model_config model;
 	struct edgepulse_snapshot snapshot;
 	const char *model_status;
@@ -1359,6 +1925,7 @@ static int EDGEPULSE_AGENT_UNUSED print_agent_diagnose(const char *question)
 	char request_id[64];
 	char memory_summary[512];
 	char answer[1024];
+	char model_prompt[2048];
 	struct agent_tool_result uname_result;
 	struct agent_tool_result uptime_result;
 	struct agent_tool_result ubus_board_result;
@@ -1366,6 +1933,7 @@ static int EDGEPULSE_AGENT_UNUSED print_agent_diagnose(const char *question)
 	struct agent_tool_result ubus_network_result;
 	struct agent_model_request model_request;
 	struct agent_model_response model_response;
+	char model_attempt_summary[512] = "";
 	int have_uname = 0;
 	int have_uptime = 0;
 	int have_ubus_board = 0;
@@ -1377,11 +1945,18 @@ static int EDGEPULSE_AGENT_UNUSED print_agent_diagnose(const char *question)
 	char *const ubus_info_argv[] = { "ubus", "call", "system", "info", NULL };
 	char *const ubus_network_argv[] = { "ubus", "call", "network.interface", "dump", NULL };
 
-	read_agent_config(&agent, &model);
-	model_status = agent_model_status(&agent, &model);
+	answer[0] = '\0';
+	int model_count = 0;
+	read_agent_config_models(&agent, models, AGENT_MAX_MODELS, &model_count);
+	if (model_count > 0)
+		model = models[0];
+	else
+		init_agent_model_config(&model, 0);
+	model_status = agent_models_status(&agent, models, model_count);
 	agent_make_request_id(request_id, sizeof(request_id));
 
 	if (!agent.enabled) {
+		agent_syslog(LOG_INFO, "request skipped status=disabled");
 		printf("{\n");
 		printf("  \"status\": \"disabled\",\n");
 		printf("  \"answer\": \"EdgePulse AI agent is installed but disabled. Enable edgepulse.agent.enabled before running diagnostics.\"\n");
@@ -1395,21 +1970,6 @@ static int EDGEPULSE_AGENT_UNUSED print_agent_diagnose(const char *question)
 	}
 
 	memory_ratio = edgepulse_memory_used_ratio(&snapshot);
-	agent_build_model_request(&agent, &model, "analyzer", &model_request);
-	agent_call_model_with_retries(&model_request, &model, question,
-				      &model_response);
-	if (strcmp(model_response.status, "ok") == 0 &&
-	    extract_openai_message_content(model_response.text, answer, sizeof(answer)) == 0) {
-		/* Use the model's assistant message as the user-facing answer. */
-	} else {
-		if (strcmp(model_response.status, "ok") == 0)
-			fallback_answer = "The configured OpenAI-compatible model endpoint returned a response. The local read-only telemetry and tool evidence are included for grounding.";
-		else if (strcmp(model_status, "configured") == 0)
-			fallback_answer = "The model backend is configured, but the model call did not complete successfully. The local read-only telemetry and tool evidence are included for fallback diagnostics.";
-		else
-			fallback_answer = "The AI agent MVP ran a local read-only diagnostic. Configure and enable a model backend to add model reasoning; local telemetry and policy findings are included in this response.";
-		snprintf(answer, sizeof(answer), "%s", fallback_answer);
-	}
 
 	snprintf(memory_summary, sizeof(memory_summary),
 		 "Diagnostic request %s: load %.2f/%.2f/%.2f, memory %.2f%%, model_status=%s",
@@ -1417,8 +1977,13 @@ static int EDGEPULSE_AGENT_UNUSED print_agent_diagnose(const char *question)
 		 memory_ratio * 100.0, model_status);
 	agent_store_audit(agent.db_path, request_id, "request.started",
 			  question ? question : "");
+	agent_syslog(LOG_INFO, "request started request_id=%s model_status=%s local_only=%s policy=%s",
+		     request_id, model_status, agent.local_only ? "true" : "false",
+		     agent.policy_profile);
 	agent_store_audit(agent.db_path, request_id, "tool.edgepulse_snapshot",
 			  "Collected local read-only telemetry snapshot.");
+	agent_syslog(LOG_INFO, "tool request_id=%s name=edgepulse_snapshot status=ok",
+		     request_id);
 	if (agent.shell_enabled) {
 		agent_run_read_only_command("shell.uname", uname_argv,
 					    agent.tool_timeout_sec,
@@ -1427,6 +1992,8 @@ static int EDGEPULSE_AGENT_UNUSED print_agent_diagnose(const char *question)
 		have_uname = 1;
 		agent_store_audit(agent.db_path, request_id, "tool.shell.uname",
 				  uname_result.status);
+		agent_syslog(LOG_INFO, "tool request_id=%s name=shell.uname status=%s exit_code=%d",
+			     request_id, uname_result.status, uname_result.exit_code);
 		agent_run_read_only_command("shell.uptime", uptime_argv,
 					    agent.tool_timeout_sec,
 					    agent.max_tool_output_bytes,
@@ -1434,6 +2001,8 @@ static int EDGEPULSE_AGENT_UNUSED print_agent_diagnose(const char *question)
 		have_uptime = 1;
 		agent_store_audit(agent.db_path, request_id, "tool.shell.uptime",
 				  uptime_result.status);
+		agent_syslog(LOG_INFO, "tool request_id=%s name=shell.uptime status=%s exit_code=%d",
+			     request_id, uptime_result.status, uptime_result.exit_code);
 	}
 	if (agent.ubus_enabled) {
 		agent_run_read_only_command("ubus.system.board", ubus_board_argv,
@@ -1443,6 +2012,9 @@ static int EDGEPULSE_AGENT_UNUSED print_agent_diagnose(const char *question)
 		have_ubus_board = 1;
 		agent_store_audit(agent.db_path, request_id, "tool.ubus.system.board",
 				  ubus_board_result.status);
+		agent_syslog(LOG_INFO, "tool request_id=%s name=ubus.system.board status=%s exit_code=%d",
+			     request_id, ubus_board_result.status,
+			     ubus_board_result.exit_code);
 		agent_run_read_only_command("ubus.system.info", ubus_info_argv,
 					    agent.tool_timeout_sec,
 					    agent.max_tool_output_bytes,
@@ -1450,6 +2022,9 @@ static int EDGEPULSE_AGENT_UNUSED print_agent_diagnose(const char *question)
 		have_ubus_info = 1;
 		agent_store_audit(agent.db_path, request_id, "tool.ubus.system.info",
 				  ubus_info_result.status);
+		agent_syslog(LOG_INFO, "tool request_id=%s name=ubus.system.info status=%s exit_code=%d",
+			     request_id, ubus_info_result.status,
+			     ubus_info_result.exit_code);
 		agent_run_read_only_command("ubus.network.interface.dump",
 					    ubus_network_argv,
 					    agent.tool_timeout_sec,
@@ -1459,19 +2034,103 @@ static int EDGEPULSE_AGENT_UNUSED print_agent_diagnose(const char *question)
 		agent_store_audit(agent.db_path, request_id,
 				  "tool.ubus.network.interface.dump",
 				  ubus_network_result.status);
+		agent_syslog(LOG_INFO, "tool request_id=%s name=ubus.network.interface.dump status=%s exit_code=%d",
+			     request_id, ubus_network_result.status,
+			     ubus_network_result.exit_code);
 	}
-	agent_store_audit(agent.db_path, request_id, "model.route",
-			  model_request.status);
-	agent_store_audit(agent.db_path, request_id, "model.call",
-			  model_response.status);
+
+	snprintf(model_prompt, sizeof(model_prompt),
+		 "Write one short status sentence from these fields only: uptime_sec=%.0f, load1=%.2f, load5=%.2f, load15=%.2f, memory_used_pct=%.2f, tool_uname=%s, tool_uptime=%s, tool_board=%s, tool_system=%s, tool_network=%s.",
+		 snapshot.uptime_sec, snapshot.load1,
+		 snapshot.load5, snapshot.load15, memory_ratio * 100.0,
+		 have_uname ? uname_result.status : "skipped",
+		 have_uptime ? uptime_result.status : "skipped",
+		 have_ubus_board ? ubus_board_result.status : "skipped",
+		 have_ubus_info ? ubus_info_result.status : "skipped",
+		 have_ubus_network ? ubus_network_result.status : "skipped");
+
+	memset(&model_request, 0, sizeof(model_request));
+	memset(&model_response, 0, sizeof(model_response));
+	snprintf(model_response.status, sizeof(model_response.status), "%s",
+		 model_status);
+	for (int i = 0; i < (model_count > 0 ? model_count : 1); i++) {
+		char extracted_answer[sizeof(answer)];
+		int usable_answer = 0;
+
+		if (model_count > 0)
+			model = models[i];
+		agent_build_model_request(&agent, &model, "analyzer", &model_request);
+		agent_call_model_with_retries(&model_request, &model, model_prompt,
+					      &model_response);
+		agent_store_audit(agent.db_path, request_id, "model.route",
+				  model_request.status);
+		agent_store_audit(agent.db_path, request_id, "model.call",
+				  model_response.status);
+		agent_syslog(strcmp(model_response.status, "ok") == 0 ? LOG_INFO : LOG_WARNING,
+			     "model request_id=%s provider=%s model=%s priority=%d route=%s status=%s attempts=%d http_status=%d finish_reason=%s reasoning_present=%s no_think=%s max_tokens=%d",
+			     request_id, model_request.provider[0] ? model_request.provider : "-",
+			     model_request.model[0] ? model_request.model : "-",
+			     model.priority, model_request.status, model_response.status,
+			     model_response.attempts, model_response.http_status,
+			     model_response.finish_reason[0] ? model_response.finish_reason : "-",
+			     model_response.reasoning_present ? "true" : "false",
+			     model.no_think ? "true" : "false", model.max_tokens);
+
+		if (model_attempt_summary[0] == '\0') {
+			snprintf(model_attempt_summary, sizeof(model_attempt_summary),
+				 "%s:%s", model.name[0] ? model.name : "-",
+				 model_response.status);
+		} else {
+			size_t used = strlen(model_attempt_summary);
+			snprintf(model_attempt_summary + used,
+				 sizeof(model_attempt_summary) - used,
+				 ",%s:%s", model.name[0] ? model.name : "-",
+				 model_response.status);
+		}
+
+		if (strcmp(model_response.status, "ok") == 0 &&
+		    extract_openai_message_content(model_response.text,
+						   extracted_answer,
+						   sizeof(extracted_answer)) == 0) {
+			snprintf(answer, sizeof(answer), "%s", extracted_answer);
+			usable_answer = 1;
+		}
+		if (usable_answer ||
+		    strcmp(model_request.status, "agent_disabled") == 0 ||
+		    strcmp(model_request.status, "local_only") == 0)
+			break;
+	}
+	if (strcmp(model_response.status, "ok") == 0 &&
+	    answer[0] != '\0') {
+		/* Use the model's assistant message as the user-facing answer. */
+	} else {
+		if (strcmp(model_response.status, "ok") == 0) {
+			snprintf(answer, sizeof(answer),
+				 "The configured OpenAI-compatible model endpoint returned HTTP 200, but no assistant content was available. Local summary: uptime %.0f seconds, load %.2f/%.2f/%.2f, memory used %.2f%%. Tool evidence is included for grounding.",
+				 snapshot.uptime_sec, snapshot.load1, snapshot.load5,
+				 snapshot.load15, memory_ratio * 100.0);
+		} else if (strcmp(model_status, "configured") == 0) {
+			fallback_answer = "The model backend is configured, but the model call did not complete successfully. The local read-only telemetry and tool evidence are included for fallback diagnostics.";
+			snprintf(answer, sizeof(answer), "%s", fallback_answer);
+		} else {
+			fallback_answer = "The AI agent MVP ran a local read-only diagnostic. Configure and enable a model backend to add model reasoning; local telemetry and policy findings are included in this response.";
+			snprintf(answer, sizeof(answer), "%s", fallback_answer);
+		}
+	}
 	agent_store_audit(agent.db_path, request_id, "policy.read_only",
 			  agent_config_has_warnings(&agent, &model) ?
 			  "Read-only policy active with configuration warnings." :
 			  "Read-only policy active.");
+	agent_syslog(LOG_INFO, "policy request_id=%s profile=%s mode=read_only",
+		     request_id, agent.policy_profile);
 	if (agent.memory_enabled)
 		agent_store_memory(agent.db_path, memory_summary);
 	agent_store_request(agent.db_path, request_id, question ? question : "",
 			    model_status, answer);
+	agent_syslog(LOG_INFO, "request completed request_id=%s model_status=%s answer_source=%s",
+		     request_id, model_status,
+		     (strcmp(model_response.status, "ok") == 0 && answer[0] != '\0') ?
+		     "model_or_response" : "fallback");
 
 	printf("{\n");
 	printf("  \"status\": \"ok\",\n");
@@ -1516,6 +2175,15 @@ static int EDGEPULSE_AGENT_UNUSED print_agent_diagnose(const char *question)
 	printf(",\n");
 	print_agent_model_response_json(&model_response);
 	printf(",\n");
+	printf("  \"model_failover\": {\n");
+	printf("    \"attempts\": ");
+	print_json_string(model_attempt_summary);
+	printf(",\n");
+	printf("    \"selected_provider\": ");
+	print_json_string(model.name);
+	printf(",\n");
+	printf("    \"selected_priority\": %d\n", model.priority);
+	printf("  },\n");
 	print_agent_findings(&snapshot, &agent);
 	printf("  \"snapshot\": {\n");
 	printf("    \"uptime_sec\": %.2f,\n", snapshot.uptime_sec);
@@ -1582,6 +2250,58 @@ unavailable:
 	if (db)
 		sqlite3_close(db);
 	printf("{ \"memory\": [], \"status\": \"unavailable\" }\n");
+	return 0;
+}
+
+static int EDGEPULSE_AGENT_UNUSED print_agent_audit_list(void)
+{
+	static const char *sql =
+		"SELECT id, created_at, request_id, event_type, detail "
+		"FROM agent_audit_log ORDER BY created_at DESC, id DESC LIMIT 100;";
+	struct agent_config agent;
+	struct agent_model_config model;
+	sqlite3 *db = NULL;
+	sqlite3_stmt *stmt = NULL;
+	int first = 1;
+	int rc;
+
+	read_agent_config(&agent, &model);
+	if (edgepulse_init_database(agent.db_path) != 0 ||
+	    sqlite3_open(agent.db_path, &db) != SQLITE_OK)
+		goto unavailable;
+	if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) != SQLITE_OK)
+		goto unavailable;
+
+	printf("{\n");
+	printf("  \"audit\": [\n");
+	while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+		if (!first)
+			printf(",\n");
+		first = 0;
+		printf("    { \"id\": %lld, \"created_at\": %lld, \"request_id\": ",
+		       sqlite3_column_int64(stmt, 0),
+		       sqlite3_column_int64(stmt, 1));
+		print_json_string((const char *)sqlite3_column_text(stmt, 2));
+		printf(", \"event_type\": ");
+		print_json_string((const char *)sqlite3_column_text(stmt, 3));
+		printf(", \"detail\": ");
+		print_json_string((const char *)sqlite3_column_text(stmt, 4));
+		printf(" }");
+	}
+	printf("\n");
+	printf("  ]\n");
+	printf("}\n");
+
+	sqlite3_finalize(stmt);
+	sqlite3_close(db);
+	return rc == SQLITE_DONE ? 0 : 1;
+
+unavailable:
+	if (stmt)
+		sqlite3_finalize(stmt);
+	if (db)
+		sqlite3_close(db);
+	printf("{ \"audit\": [], \"status\": \"unavailable\" }\n");
 	return 0;
 }
 
@@ -1665,7 +2385,7 @@ static int handle_agent_command(int argc, char **argv)
 	return 0;
 #else
 	if (argc < 3) {
-		fprintf(stderr, "Usage: edgepulse-ctl agent <status|diagnose|ask> [message]\n");
+		fprintf(stderr, "Usage: edgepulse-ctl agent <status|diagnose|ask|memory|models|audit|policy> [message]\n");
 		return 2;
 	}
 
@@ -1696,6 +2416,15 @@ static int handle_agent_command(int argc, char **argv)
 		return 2;
 	}
 
+	if (strcmp(argv[2], "models") == 0) {
+		if (argc >= 4 && strcmp(argv[3], "list") == 0)
+			return print_agent_models_list();
+		if (argc >= 4 && strcmp(argv[3], "remote-list") == 0)
+			return print_agent_remote_models(argc >= 5 ? argv[4] : NULL);
+		fprintf(stderr, "Usage: edgepulse-ctl agent models <list|remote-list> [section]\n");
+		return 2;
+	}
+
 	if (strcmp(argv[2], "policy") == 0) {
 		if (argc >= 4 && strcmp(argv[3], "show") == 0)
 			return print_agent_policy();
@@ -1703,7 +2432,14 @@ static int handle_agent_command(int argc, char **argv)
 		return 2;
 	}
 
-	fprintf(stderr, "Usage: edgepulse-ctl agent <status|diagnose|ask|memory|policy> [message]\n");
+	if (strcmp(argv[2], "audit") == 0) {
+		if (argc >= 4 && strcmp(argv[3], "list") == 0)
+			return print_agent_audit_list();
+		fprintf(stderr, "Usage: edgepulse-ctl agent audit list\n");
+		return 2;
+	}
+
+	fprintf(stderr, "Usage: edgepulse-ctl agent <status|diagnose|ask|memory|models|audit|policy> [message]\n");
 	return 2;
 #endif
 }

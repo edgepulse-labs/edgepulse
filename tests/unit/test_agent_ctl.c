@@ -146,12 +146,37 @@ static void test_agent_uci_parsing(void)
 	      " option api_key 'super-secret'\n"
 	      " option api_key_env 'EDGEPULSE_TEST_KEY'\n"
 	      " option timeout_sec '9'\n"
-	      " option retry_count '2'\n",
+	      " option retry_count '2'\n"
+	      " option max_tokens '1536'\n"
+	      " option no_think '0'\n"
+	      " option priority '20'\n"
+	      "\n"
+	      "config model 'backup_reasoner'\n"
+	      " option enabled '1'\n"
+	      " option role 'analyzer'\n"
+	      " option base_url 'http://127.0.0.1:8081/v1'\n"
+	      " option model 'backup-model'\n"
+	      " option api_key 'backup-secret'\n"
+	      " option priority '10'\n",
 	      fp);
 	fclose(fp);
 
 	setenv("EDGEPULSE_CONFIG_PATH", path, 1);
 	check_int("read agent config", read_agent_config(&agent, &model), 0);
+	{
+		struct agent_model_config models[AGENT_MAX_MODELS];
+		int model_count = 0;
+
+		check_int("read agent model configs",
+			  read_agent_config_models(&agent, models, AGENT_MAX_MODELS,
+						   &model_count),
+			  0);
+		check_int("model count parse", model_count, 2);
+		check_string("model priority sort", models[0].name, "backup_reasoner");
+		check_int("model priority value", models[0].priority, 10);
+		check_string("models status", agent_models_status(&agent, models, model_count),
+			     "configured");
+	}
 	unsetenv("EDGEPULSE_CONFIG_PATH");
 	unlink(path);
 
@@ -167,9 +192,10 @@ static void test_agent_uci_parsing(void)
 	check_int("model present parse", model.present, 1);
 	check_int("model enabled parse", model.enabled, 1);
 	check_int("model configured parse", model.configured, 1);
-	check_string("model name parse", model.name, "remote_reasoner");
-	check_string("model value parse", model.model, "edge-test-model");
-	check_string("model api key parse", model.api_key, "super-secret");
+	check_string("model name parse", model.name, "backup_reasoner");
+	check_string("model value parse", model.model, "backup-model");
+	check_string("model api key parse", model.api_key, "backup-secret");
+	check_int("model priority parse", model.priority, 10);
 	check_string("model status", agent_model_status(&agent, &model), "configured");
 }
 
@@ -194,6 +220,8 @@ static void test_agent_model_request_and_payload(void)
 	snprintf(model.model, sizeof(model.model), "%s", "edge-test-model");
 	snprintf(model.api_key, sizeof(model.api_key), "%s", "super-secret");
 	model.retry_count = 1;
+	model.max_tokens = 1024;
+	model.no_think = 1;
 
 	agent_build_model_request(&agent, &model, "analyzer", &request);
 	check_string("model request status", request.status, "ready");
@@ -203,9 +231,11 @@ static void test_agent_model_request_and_payload(void)
 	agent_build_model_request(&agent, &model, "classifier", &request);
 	check_string("role mismatch status", request.status, "role_not_matched");
 
-	build_model_payload(payload, sizeof(payload), model.model,
+	build_model_payload(payload, sizeof(payload), &model,
 			    "quote \" newline\n tab\t slash\\");
 	check_contains("payload model", payload, "\"model\":\"edge-test-model\"");
+	check_contains("payload max tokens", payload, "\"max_tokens\":1024");
+	check_contains("payload no think", payload, "/no_think");
 	check_contains("payload escaped quote", payload, "quote \\\"");
 	check_contains("payload slash", payload, "slash\\\\");
 	if (strstr(payload, "\n") || strstr(payload, "\t")) {
@@ -214,10 +244,16 @@ static void test_agent_model_request_and_payload(void)
 	}
 
 	snprintf(model.base_url, sizeof(model.base_url), "%s", "https://api.example.test/v1");
+	model.retry_count = 0;
 	agent_build_model_request(&agent, &model, "analyzer", &request);
 	agent_call_model_with_retries(&request, &model, "hello", &response);
-	check_int("unsupported transport attempts", response.attempts, 1);
-	check_string("unsupported transport status", response.status, "unsupported_transport");
+	check_int("remote transport attempts", response.attempts, 1);
+	if (strcmp(response.status, "fetch_error") != 0 &&
+	    strcmp(response.status, "transport_unavailable") != 0) {
+		fprintf(stderr, "FAIL remote transport status: got '%s'\n",
+			response.status);
+		failures++;
+	}
 
 	check_int("extract model content",
 		  extract_openai_message_content("{\"choices\":[{\"message\":{\"content\":\"local model response\"}}]}",
@@ -229,6 +265,17 @@ static void test_agent_model_request_and_payload(void)
 						 content, sizeof(content)),
 		  0);
 	check_string("escaped model content", content, "line one\nline two \"quoted\"");
+	check_int("extract finish reason",
+		  extract_openai_finish_reason("{\"finish_reason\":\"length\"}",
+					       content, sizeof(content)),
+		  0);
+	check_string("finish reason", content, "length");
+	check_int("detect reasoning content",
+		  openai_has_reasoning_content("{\"reasoning_content\":\"thinking\"}"),
+		  1);
+	check_int("ignore empty reasoning content",
+		  openai_has_reasoning_content("{\"reasoning_content\":\"\"}"),
+		  0);
 }
 
 static void test_agent_validation_warnings(void)

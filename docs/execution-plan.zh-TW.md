@@ -70,17 +70,18 @@ edgepulse-openwrt-feed/
 
 Todo:
 
-- [x] 加入 `packaging/openwrt-feed/edgepulse/Makefile`。
-- [x] 加入 `packaging/openwrt-feed/edgepulse/files/etc/config/edgepulse`。
-- [x] 加入 `packaging/openwrt-feed/edgepulse/files/etc/init.d/edgepulse`。
-- [x] 加入 `packaging/openwrt-feed/luci-app-edgepulse/Makefile`。
+- [x] 加入 `edgepulse-openwrt-feed/edgepulse/Makefile`。
+- [x] 加入 `edgepulse-openwrt-feed/edgepulse/files/etc/config/edgepulse`。
+- [x] 加入 `edgepulse-openwrt-feed/edgepulse/files/etc/init.d/edgepulse`。
+- [x] 加入 `edgepulse-openwrt-feed/luci-app-edgepulse/Makefile`。
 - [x] 加入 LuCI menu metadata。
 - [x] 加入 rpcd ACL metadata。
 - [x] 將 `edgepulse` 與 `edgepulse-ctl` 都安裝進 OpenWrt package。
 - [x] 在本地 OpenWrt buildroot 編出 `edgepulse-1.apk`。
 - [x] 在本地 OpenWrt buildroot 編出 `luci-app-edgepulse-1.apk`。
 - [x] 在 OpenWrt One 上安裝並驗證兩個 packages。
-- [x] 將 feed copy 同步到獨立的 `edgepulse-openwrt-feed` repository，供本地 OpenWrt build 使用。
+- [x] 將 OpenWrt package 與 LuCI 實作 ownership 移到獨立的 `edgepulse-openwrt-feed` repository，供本地 OpenWrt build 使用。
+- [x] 移除 repo 內過時的 OpenWrt feed package mirror，並保留 `packaging/openwrt-feed/README.md` 作為指向 standalone feed repository 的說明。
 - [x] 加入 source archive 與 OpenWrt package `PKG_RELEASE` 更新的 release/version workflow。
 
 Initial dependencies:
@@ -302,7 +303,7 @@ Initial boundary:
 
 OpenWrt package 與 build configuration todo:
 
-- [x] 在 `packaging/openwrt-feed/edgepulse/Makefile` 加入 OpenWrt package build option，用來在 build time include 或 exclude AI agent support。
+- [x] 在 `edgepulse-openwrt-feed/edgepulse/Makefile` 加入 OpenWrt package build option，用來在 build time include 或 exclude AI agent support。
 - [x] 定義 AI agent defaults 的 package config symbols，例如 `EDGEPULSE_ENABLE_AI_AGENT`、default model provider、default remote base URL、default model name、default local-only mode 與 default policy profile。
 - [x] 預設不要把真正的 secrets bake 進 firmware images；build-time API key placeholder 僅供 development images 使用，正式使用時優先透過 runtime UCI 或 environment-based secret configuration。
 - [x] 決定第一版 package shape 是 optional `edgepulse-agent` subpackage，或是編進現有 `edgepulse` package 的 feature。
@@ -312,7 +313,7 @@ OpenWrt package 與 build configuration todo:
 
 UCI configuration todo:
 
-- [x] 擴充 `packaging/openwrt-feed/edgepulse/files/etc/config/edgepulse`，加入 `agent` section，包含 `enabled`、`local_only`、`memory_enabled`、`shell_enabled`、`ubus_enabled`、`policy_profile`、request timeout、heartbeat interval、tool timeout 與 max tool output size。
+- [x] 擴充 `edgepulse-openwrt-feed/edgepulse/files/etc/config/edgepulse`，加入 `agent` section，包含 `enabled`、`local_only`、`memory_enabled`、`shell_enabled`、`ubus_enabled`、`policy_profile`、request timeout、heartbeat interval、tool timeout 與 max tool output size。
 - [x] 加入至少一個 remote OpenAI-compatible endpoint 的 model configuration sections，包含 `enabled`、`role`、`base_url`、`model`、`api_key`、`api_key_env`、timeout 與 retry settings。
 - [x] 加入 defaults，讓沒有 API key 或 local model endpoint 時，agent 能回報清楚的 "not configured" status。
 - [x] 在 status output、logs、CLI commands 與 LuCI 中支援 `api_key` redacted handling。
@@ -368,6 +369,52 @@ Exit criteria:
 Reference:
 
 - [OpenWrt AI Agent 專案需求計畫](openwrt_ai_agent_requirements_plan.zh-TW.md)
+
+## Phase 8A: AI Agent Live Model Validation
+
+狀態：已在 OpenWrt One 上完成驗證
+
+使用目前設定的 model service，在已安裝的 OpenWrt One 上驗證 AI agent，並讓失敗狀況可以從路由器上觀察。
+
+Live validation todo:
+
+- [x] 記錄 OpenWrt One 初始 agent/model 狀態，確認 `local_only` 是否正刻意阻擋 remote model 使用。
+- [x] 執行 local-only diagnostic，確認它回傳 local telemetry，且不呼叫已設定的 remote model。
+- [x] 暫時啟用 remote model 使用，驗證 diagnostic question 會送到已設定的 OpenAI-compatible model、取得 answer，且 API key 維持 redacted。
+- [x] 使用不可連線 endpoint 執行 negative model-path test，確認 fallback behavior 清楚。
+- [x] 驗證 diagnostic request 後會寫入 read-only policy evidence、tool output、memory entries 與 SQLite audit records。
+- [x] 驗證 `logread` 會出現有用的 AI agent request/model/tool summaries，且 secrets 會被 redacted。
+- [x] 驗證 LuCI backend commands 可以讀取 status/memory，並透過相同 agent path 提交 diagnostic request。
+- [x] 驗證完成後，將 OpenWrt One agent/model settings 還原成測試前狀態。
+
+Live validation scenarios:
+
+- Scenario 1：Agent enabled 且 `local_only=1`；詢問 WAN/DNS health，預期 `model_request.status=local_only`。
+- Scenario 2：Agent enabled 且 `local_only=0`；詢問 CPU/memory/network health，預期 `model_response.status=ok`。
+- Scenario 3：Remote endpoint 刻意設為 invalid；預期 non-OK model response，加上 local fallback answer。
+- Scenario 4：Read-only policy 維持啟用；allowed tools 可以執行，destructive operations 不會出現在 exposed agent action set。
+- Scenario 5：LuCI helper path `/usr/libexec/edgepulse-luci agent-diagnose` 產出與 web UI 使用相同的 structured diagnostic output。
+
+驗證紀錄：
+
+- `edgepulse-ctl agent ask` 現在會用 `edgepulse-agent` 標籤，把 request、tool、model 與 policy summary 寫入 `logread`，且內容會避免輸出 secret。
+- `edgepulse-ctl agent audit list` 可以列出最近的 SQLite audit events，方便直接在 router 上檢查。
+- HTTPS/OpenAI-compatible model call 透過 `uclient-fetch` 執行；JSON output 與 syslog summaries 會 redacted API key。
+- Model response JSON 與 syslog model summary 現在會包含 `finish_reason`、`reasoning_present`、`no_think` 與 `max_tokens`，方便直接在 OpenWrt 上觀察 reasoning-only response。
+- `no_think` 已做成可設定選項，但目前設定的 Qwen OpenAI-compatible endpoint 並沒有穩定遵守 `/no_think`；當 `no_think=1` 時，反而多次把完整 response budget 用在 `reasoning_content`。
+- 目前 OpenWrt One model 的實測可用設定為 `no_think=0`、`max_tokens=2048`、`timeout_sec=60`、`retry_count=0`；此設定可得到 `finish_reason=stop` 與可用的 assistant content。
+- 預設 model prompt 已縮小成 compact telemetry field summary；完整 tool evidence 仍保留在 structured agent output、audit 與 log records。
+- 若 model 回 HTTP 200 但沒有 assistant content，MVP 仍會 fallback 到 local telemetry summary。
+- OpenWrt One 已保留為 agent enabled、remote model use enabled，並套用實測可用的 model settings。
+
+後續 model selection work：
+
+- [x] 新增 CLI model inventory commands：`edgepulse-ctl agent models list` 與 `edgepulse-ctl agent models remote-list [section]`。
+- [x] 使用設定的 endpoint 與 token 查詢 OpenAI-compatible `/models`，並維持 API key redacted。
+- [x] 在 model sections 加入 `priority`，讓 enabled model configs 可以依序用於 inference。
+- [x] 依 priority 嘗試已設定 models，當目前 model 無法連線或沒有可用 assistant content 時，自動 fallback 到下一個 ready model。
+- [x] 在 LuCI 顯示 model priority、remote model choices 與可複製的 model config snippets。
+- [x] 在 OpenWrt One 上加入臨時不可連線的高優先序 model，確認 agent 會 fallback 到可用的 `remote_reasoner`。
 
 ## MVP Definition
 

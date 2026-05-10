@@ -6,6 +6,7 @@ This document records how to validate the `edgepulse` package with a local OpenW
 
 - OpenWrt checkout: `/home/nier/workspace/openwrt-build`
 - Source mirror: `https://github.com/openwrt/openwrt.git`
+- Feed repository: `https://github.com/edgepulse-labs/edgepulse-openwrt-feed`
 - Feed checkout: `/home/nier/workspace/edgepulse-openwrt-feed`
 - Local source checkout: `/home/nier/workspace/edgepulse`
 - Target profile: OpenWrt One, `mediatek/filogic`

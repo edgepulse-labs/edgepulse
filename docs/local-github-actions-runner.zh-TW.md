@@ -75,7 +75,7 @@ mkdir -p ~/actions-runner
 cd ~/actions-runner
 curl -o actions-runner-linux-x64.tar.gz -L <download-url-from-github>
 tar xzf actions-runner-linux-x64.tar.gz
-./config.sh --url https://github.com/<owner>/<repo> --token <token-from-github> --labels edgepulse-local,openwrt,linux
+./config.sh --url https://github.com/edgepulse-labs/edgepulse-openwrt-feed --token <token-from-github> --labels edgepulse-local,openwrt,linux
 ```
 
 請使用 GitHub 頁面顯示的實際 commands，因為 runner 版本與 token 會變動。
@@ -127,9 +127,6 @@ jobs:
 
       - name: Unit tests
         run: make test
-
-      - name: Sync local OpenWrt feed
-        run: cp -a "$GITHUB_WORKSPACE/packaging/openwrt-feed/." /home/nier/workspace/edgepulse-openwrt-feed/
 
       - name: Build edgepulse package
         working-directory: /home/nier/workspace/openwrt-build

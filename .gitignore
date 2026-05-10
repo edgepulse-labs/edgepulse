@@ -1,5 +1,8 @@
 .vscode/settings.json
+.env
 /edgepulse
 /edgepulse-ctl
 /tests/unit/test_edgepulse
+/tests/unit/test_agent_ctl
+/tests/integration/mock_openai_server
 /dist/

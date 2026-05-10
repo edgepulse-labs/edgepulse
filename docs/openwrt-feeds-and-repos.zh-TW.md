@@ -64,7 +64,7 @@ MVP 階段避免拆成太多 repositories。像 `edgepulse-core`、`edgepulse-lu
 Remote git feed：
 
 ```text
-src-git edgepulse https://github.com/Pod-01-Nier/edgepulse-openwrt-feed.git
+src-git edgepulse https://github.com/edgepulse-labs/edgepulse-openwrt-feed.git
 ```
 
 Local package development：
@@ -76,13 +76,13 @@ src-link edgepulse /path/to/edgepulse-openwrt-feed
 Branch-specific feed：
 
 ```text
-src-git edgepulse https://github.com/Pod-01-Nier/edgepulse-openwrt-feed.git;main
+src-git edgepulse https://github.com/edgepulse-labs/edgepulse-openwrt-feed.git;main
 ```
 
 Pinned feed commit：
 
 ```text
-src-git edgepulse https://github.com/Pod-01-Nier/edgepulse-openwrt-feed.git^<commit-hash>
+src-git edgepulse https://github.com/edgepulse-labs/edgepulse-openwrt-feed.git^<commit-hash>
 ```
 
 ## OpenWrt Build Workflow

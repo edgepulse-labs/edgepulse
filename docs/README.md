@@ -13,6 +13,8 @@ This directory keeps implementation-oriented project documents.
 - [OpenWrt One telemetry MVP](openwrt-one-telemetry-mvp.md) / [繁體中文](openwrt-one-telemetry-mvp.zh-TW.md): minimal C package, SQLite, feature sampling, and LuCI plan.
 - [Training data upload and normalization](training-data-upload-and-normalization.md) / [繁體中文](training-data-upload-and-normalization.zh-TW.md): planned remote upload mechanism and fixed-schema normalization strategy.
 - [OpenWrt AI Agent project requirements plan](openwrt_ai_agent_requirements_plan.md) / [繁體中文](openwrt_ai_agent_requirements_plan.zh-TW.md): runtime requirements, architecture, and milestones for an OpenWrt AI agent.
+- [AI Agent OpenWrt model validation use cases](ai-agent-openwrt-model-validation-use-cases.md) / [繁體中文](ai-agent-openwrt-model-validation-use-cases.zh-TW.md): repeatable router-side model benchmark scenarios.
+- [Test environment variables](test-environment-variables.md) / [繁體中文](test-environment-variables.zh-TW.md): `.env` usage, `.env-example`, and environment variables for unit, integration, and end-to-end tests.
 
 ## Documentation Rules
 

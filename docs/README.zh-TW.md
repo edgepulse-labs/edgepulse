@@ -13,6 +13,8 @@
 - [OpenWrt One telemetry MVP](openwrt-one-telemetry-mvp.zh-TW.md)：最小 C package、SQLite、feature 採樣與 LuCI 規劃。
 - [訓練資料上傳與標準化](training-data-upload-and-normalization.zh-TW.md)：遠端上傳機制與固定 schema normalization strategy 規劃。
 - [OpenWrt AI Agent 專案需求計畫](openwrt_ai_agent_requirements_plan.zh-TW.md)：OpenWrt AI Agent runtime 的需求、架構與里程碑。
+- [AI Agent OpenWrt Model 驗證 Use Cases](ai-agent-openwrt-model-validation-use-cases.zh-TW.md)：可重複執行的 router-side model benchmark scenarios。
+- [測試環境變數](test-environment-variables.zh-TW.md)：`.env` 使用方式、`.env-example` 與 unit、integration、end-to-end tests 的環境變數。
 
 ## 文件規則
 

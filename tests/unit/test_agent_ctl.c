@@ -46,6 +46,15 @@ static void test_agent_policy_allowlist(void)
 	char *const uname_ok[] = { "uname", "-a", NULL };
 	char *const uptime_ok[] = { "uptime", NULL };
 	char *const ubus_ok[] = { "ubus", "call", "system", "board", NULL };
+	char *const wireless_ok[] = { "ubus", "call", "network.wireless", "status", NULL };
+	char *const logread_ok[] = { "logread", "-l", "80", NULL };
+	char *const logread_denied[] = { "logread", "-f", NULL };
+	char *const uci_show_ok[] = { "uci", "show", "edgepulse", NULL };
+	char *const uci_show_denied[] = { "uci", "show", "wireless", NULL };
+	char *const ifup_wan_ok[] = { "ifup", "wan", NULL };
+	char *const ifup_lan_denied[] = { "ifup", "lan", NULL };
+	char *const uci_ssid_ok[] = { "uci", "set", "wireless.@wifi-iface[0].ssid=EdgePulse", NULL };
+	char *const uci_network_denied[] = { "uci", "set", "network.wan.proto=dhcp", NULL };
 	char *const ubus_denied[] = { "ubus", "call", "service", "restart", NULL };
 	char *const rm_denied[] = { "rm", "-rf", "/", NULL };
 	char *const uname_denied[] = { "uname", "-r", NULL };
@@ -53,10 +62,19 @@ static void test_agent_policy_allowlist(void)
 	check_int("allow uname -a", agent_command_allowed(uname_ok), 1);
 	check_int("allow uptime", agent_command_allowed(uptime_ok), 1);
 	check_int("allow ubus system board", agent_command_allowed(ubus_ok), 1);
+	check_int("allow ubus wireless status", agent_command_allowed(wireless_ok), 1);
+	check_int("allow bounded logread", agent_command_allowed(logread_ok), 1);
+	check_int("deny streaming logread", agent_command_allowed(logread_denied), 0);
+	check_int("allow edgepulse uci read", agent_command_allowed(uci_show_ok), 1);
+	check_int("deny arbitrary uci read", agent_command_allowed(uci_show_denied), 0);
 	check_int("deny ubus service restart", agent_command_allowed(ubus_denied), 0);
 	check_int("deny rm", agent_command_allowed(rm_denied), 0);
 	check_int("deny uname -r", agent_command_allowed(uname_denied), 0);
 	check_int("deny null argv", agent_command_allowed(NULL), 0);
+	check_int("allow confirmed ifup wan", agent_mutating_command_allowed(ifup_wan_ok), 1);
+	check_int("deny confirmed ifup lan", agent_mutating_command_allowed(ifup_lan_denied), 0);
+	check_int("allow wifi ssid uci", agent_mutating_command_allowed(uci_ssid_ok), 1);
+	check_int("deny network uci", agent_mutating_command_allowed(uci_network_denied), 0);
 }
 
 static void test_agent_tool_execution(void)
@@ -133,6 +151,9 @@ static void test_agent_uci_parsing(void)
 	      " option shell_enabled '1'\n"
 	      " option ubus_enabled '0'\n"
 	      " option policy_profile 'read_only'\n"
+	      " option chat_enabled '1'\n"
+	      " option default_conversation_id 'ops'\n"
+	      " option mcp_enabled '1'\n"
 	      " option request_timeout_sec '42'\n"
 	      " option heartbeat_interval_sec '7'\n"
 	      " option tool_timeout_sec '3'\n"
@@ -184,6 +205,9 @@ static void test_agent_uci_parsing(void)
 	check_int("agent local_only parse", agent.local_only, 0);
 	check_int("agent memory parse", agent.memory_enabled, 0);
 	check_int("agent ubus parse", agent.ubus_enabled, 0);
+	check_int("agent chat parse", agent.chat_enabled, 1);
+	check_int("agent mcp parse", agent.mcp_enabled, 1);
+	check_string("agent conversation parse", agent.default_conversation_id, "ops");
 	check_int("agent request timeout parse", agent.request_timeout_sec, 42);
 	check_int("agent heartbeat parse", agent.heartbeat_interval_sec, 7);
 	check_int("agent tool timeout parse", agent.tool_timeout_sec, 3);
@@ -289,9 +313,48 @@ static void test_agent_validation_warnings(void)
 	snprintf(agent.policy_profile, sizeof(agent.policy_profile), "%s", "unsafe");
 	check_int("unsafe policy warns", agent_config_has_warnings(&agent, &model), 1);
 	snprintf(agent.policy_profile, sizeof(agent.policy_profile), "%s", "read_only");
+	check_int("read-only policy does not mutate", agent_policy_allows_mutation(&agent), 0);
+	snprintf(agent.policy_profile, sizeof(agent.policy_profile), "%s", "operator_confirmed");
+	check_int("operator policy valid", agent_config_has_warnings(&agent, &model), 0);
+	check_int("operator policy can mutate", agent_policy_allows_mutation(&agent), 1);
+	snprintf(agent.policy_profile, sizeof(agent.policy_profile), "%s", "read_only");
 
 	snprintf(model.base_url, sizeof(model.base_url), "%s", "http://example.test/v1");
 	check_int("remote http warns", agent_config_has_warnings(&agent, &model), 1);
+}
+
+static void test_agent_conversation_storage(void)
+{
+	const char *path = "/tmp/edgepulse-agent-chat-test.db";
+	sqlite3 *db = NULL;
+	sqlite3_stmt *stmt = NULL;
+	int count = 0;
+
+	unlink(path);
+	check_int("store conversation messages",
+		  agent_store_conversation_messages(path, "luci", "req-1",
+						    "hello", "local_only",
+						    "answer"),
+		  0);
+	if (sqlite3_open(path, &db) != SQLITE_OK) {
+		fprintf(stderr, "FAIL open chat db\n");
+		failures++;
+		return;
+	}
+	if (sqlite3_prepare_v2(db,
+			       "SELECT count(*) FROM agent_messages WHERE conversation_id='luci';",
+			       -1, &stmt, NULL) != SQLITE_OK) {
+		fprintf(stderr, "FAIL prepare chat count\n");
+		failures++;
+		sqlite3_close(db);
+		return;
+	}
+	if (sqlite3_step(stmt) == SQLITE_ROW)
+		count = sqlite3_column_int(stmt, 0);
+	sqlite3_finalize(stmt);
+	sqlite3_close(db);
+	unlink(path);
+	check_int("conversation message pair", count, 2);
 }
 
 int main(void)
@@ -301,6 +364,7 @@ int main(void)
 	test_agent_uci_parsing();
 	test_agent_model_request_and_payload();
 	test_agent_validation_warnings();
+	test_agent_conversation_storage();
 
 	if (failures != 0) {
 		fprintf(stderr, "%d agent unit test(s) failed\n", failures);

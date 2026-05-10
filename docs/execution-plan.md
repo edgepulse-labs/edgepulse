@@ -416,6 +416,113 @@ Follow-up model selection work:
 - [x] Expose model priority, remote model choices, and copyable model config snippets through LuCI.
 - [x] Validate failover on OpenWrt One by adding a temporary unreachable higher-priority model and confirming the agent falls back to the working `remote_reasoner`.
 
+## Phase 8B: AI Agent OpenWrt Operations
+
+Status: initial CLI implementation and planning document added
+
+Extend the AI agent from read-only diagnostics into a policy-gated OpenWrt operations assistant. The agent must support common user intents such as checking router status, checking Wi-Fi status, reconnecting WAN, setting Wi-Fi, and reviewing recent abnormal logs.
+
+Operational boundary:
+
+- Read-only actions can run when the agent is enabled.
+- State-changing actions require `policy_profile=operator_confirmed` and an explicit confirmation path such as `--confirm`.
+- The agent must report every action with tool evidence, exit status, audit records, and a clear final answer.
+- Natural-language prompts should map to action IDs before model fallback, but mutation must never run from an unconfirmed prompt alone.
+
+Operations todo:
+
+- [x] Add an `edgepulse-ctl agent action` command for common OpenWrt operations.
+- [x] Implement read-only actions: `status`, `wifi-status`, and `logs-recent`.
+- [x] Implement confirmed operations: `reconnect-wan` and `wifi-set`.
+- [x] Add read-only allowlist entries for wireless status and bounded `logread`.
+- [x] Add mutation allowlist entries for WAN ifup/ifdown, wireless UCI writes, wireless commit, and Wi-Fi reload.
+- [x] Require `operator_confirmed` policy plus `--confirm` before mutation tools run.
+- [x] Add unit coverage for read-only and mutation allowlist decisions.
+- [x] Document user intent scenarios, expected behavior, CLI paths, implementation plan, and safety rules.
+- [ ] Add LuCI operation controls that call the same `agent action` path.
+- [ ] Add a small Chinese/English intent classifier that maps common requests to `status`, `wifi-status`, `logs-recent`, `reconnect-wan`, and `wifi-set`.
+- [ ] Redact Wi-Fi keys from action output and audit details before exposing them through LuCI or syslog.
+- [ ] Add post-action verification for WAN IP, DNS reachability, Wi-Fi radio up/down state, and associated clients.
+- [ ] Add fixture integration tests for `ubus`, `logread`, `uci`, `ifdown`, `ifup`, and `wifi`.
+- [ ] Add per-action permission switches so deployments can allow WAN reconnect without enabling Wi-Fi mutation.
+
+Reference:
+
+- [AI Agent OpenWrt operations scenarios](ai-agent-openwrt-operations-scenarios.md)
+
+## Phase 8C: Shared Chat And MCP Bridge
+
+Status: shared CLI conversation storage added; LuCI and MCP bridge integration planned
+
+Make AI Agent conversations visible across CLI, LuCI, and external AI tools. The EdgePulse agent remains the router-local source of truth for policy, execution, audit, and transcript storage.
+
+Architecture decisions:
+
+- UCI configures chat and MCP behavior, but does not store chat history.
+- `/tmp/edgepulse/edgepulse.db` stores shared conversations and messages.
+- CLI, LuCI, and MCP bridge all read/write the same conversation IDs.
+- The daemon should grow a local `ubus` API for agent chat and operations.
+- `openwrt-mcp-server` should remain a separate bridge process that calls EdgePulse local APIs.
+
+Chat and MCP todo:
+
+- [x] Add `agent_conversations` and `agent_messages` tables to the EdgePulse SQLite schema.
+- [x] Store `edgepulse-ctl agent ask` turns in the default shared conversation.
+- [x] Add `edgepulse-ctl agent chat ask <conversation_id> <message>`.
+- [x] Add `edgepulse-ctl agent chat list [conversation_id]`.
+- [x] Document CLI/LuCI shared chat and MCP bridge architecture.
+- [ ] Add LuCI wrapper commands for `agent-chat-list` and `agent-chat-ask`.
+- [ ] Convert the LuCI AI Agent page from a single diagnostic output into a transcript view.
+- [ ] Add UCI defaults for `chat_enabled`, `default_conversation_id`, and `mcp_enabled`.
+- [ ] Add a local `edgepulse.agent` ubus object for `status`, `chat.ask`, `chat.list`, `action.run`, `policy.show`, and `audit.list`.
+- [ ] Update `openwrt-mcp-server` to map JSON-RPC methods to EdgePulse local CLI/ubus calls.
+- [ ] Package or document `openwrt-mcp-server` as an optional companion service instead of merging it into the C daemon.
+- [ ] Validate that CLI, LuCI, and MCP see the same conversation transcript after mixed-origin messages.
+
+Reference:
+
+- [AI Agent chat and MCP integration](ai-agent-chat-and-mcp-integration.md)
+
+## Phase 8D: Local C MCP Adapter
+
+Status: first local CLI adapter implemented
+
+Add a local C MCP adapter for AI tools that run on or near the OpenWrt device. This is not a remote network service in the first phase. It exposes a narrow method surface through the existing C runtime and policy layer.
+
+Boundary:
+
+- Controlled by `edgepulse.agent.mcp_enabled`.
+- Local-only CLI adapter first: `edgepulse-ctl agent mcp methods` and `edgepulse-ctl agent mcp call <method>`.
+- No arbitrary `shell.exec`, `ubus.call`, or `uci.set`.
+- `ubus` support is read-only and method-specific.
+- `uci` support is limited to reading EdgePulse config and running confirmed named actions through the existing action layer.
+- State-changing operations still require the existing `operator_confirmed` policy and explicit confirmation.
+
+First-phase methods:
+
+- [x] `edgepulse.status`
+- [x] `edgepulse.agent.status`
+- [x] `edgepulse.agent.chat.list`
+- [x] `edgepulse.agent.chat.ask`
+- [x] `edgepulse.agent.action.run`
+- [x] `edgepulse.agent.audit.list`
+- [x] `edgepulse.ubus.status.network`
+- [x] `edgepulse.ubus.status.wireless`
+- [x] `edgepulse.uci.get.edgepulse`
+
+Follow-up todo:
+
+- [ ] Add JSON-RPC 2.0 request/response envelope support.
+- [ ] Add a long-running local server mode through `ubus` or a Unix domain socket.
+- [ ] Add UCI method-level ACLs for MCP methods.
+- [ ] Add LuCI settings controls for local MCP enablement and method exposure review.
+- [ ] Add fixture tests for local C MCP `ubus` and `uci` method calls.
+- [ ] Decide whether the local C MCP adapter should live in `edgepulse-ctl`, `edgepulse agent`, or a separate `edgepulse-mcpd` binary after the method set stabilizes.
+
+Reference:
+
+- [Local C MCP adapter vs Rust OpenWrt MCP server](local-c-mcp-vs-rust-openwrt-mcp.md)
+
 ## MVP Definition
 
 The first MVP is complete when OpenWrt One can:

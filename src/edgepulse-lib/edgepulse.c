@@ -760,7 +760,25 @@ int edgepulse_init_database(const char *db_path)
 		"  question TEXT NOT NULL,"
 		"  model_status TEXT NOT NULL,"
 		"  answer TEXT NOT NULL"
-		");";
+		");"
+		"CREATE TABLE IF NOT EXISTS agent_conversations ("
+		"  conversation_id TEXT PRIMARY KEY,"
+		"  created_at INTEGER NOT NULL,"
+		"  updated_at INTEGER NOT NULL,"
+		"  title TEXT NOT NULL DEFAULT ''"
+		");"
+		"CREATE TABLE IF NOT EXISTS agent_messages ("
+		"  id INTEGER PRIMARY KEY AUTOINCREMENT,"
+		"  conversation_id TEXT NOT NULL,"
+		"  request_id TEXT NOT NULL,"
+		"  created_at INTEGER NOT NULL,"
+		"  role TEXT NOT NULL,"
+		"  content TEXT NOT NULL,"
+		"  model_status TEXT NOT NULL DEFAULT '',"
+		"  FOREIGN KEY(conversation_id) REFERENCES agent_conversations(conversation_id)"
+		");"
+		"CREATE INDEX IF NOT EXISTS idx_agent_messages_conversation "
+		"ON agent_messages(conversation_id, created_at, id);";
 	sqlite3 *db = NULL;
 	char *errmsg = NULL;
 	int rc;

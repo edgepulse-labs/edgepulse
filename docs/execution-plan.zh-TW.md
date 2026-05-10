@@ -416,6 +416,113 @@ Live validation scenarios:
 - [x] 在 LuCI 顯示 model priority、remote model choices 與可複製的 model config snippets。
 - [x] 在 OpenWrt One 上加入臨時不可連線的高優先序 model，確認 agent 會 fallback 到可用的 `remote_reasoner`。
 
+## Phase 8B: AI Agent OpenWrt Operations
+
+狀態：已加入第一版 CLI implementation 與 planning document
+
+將 AI agent 從 read-only diagnostics 擴充成受 policy gate 控制的 OpenWrt operations assistant。Agent 必須支援常見使用者意圖，例如查詢 router status、查詢 Wi-Fi status、重新撥接 WAN、設定 Wi-Fi，以及檢查最近異常 logs。
+
+Operational boundary:
+
+- Read-only actions 在 agent enabled 後即可執行。
+- State-changing actions 必須要求 `policy_profile=operator_confirmed` 與明確 confirmation path，例如 `--confirm`。
+- Agent 必須用 tool evidence、exit status、audit records 與清楚 final answer 回報每個 action。
+- Natural-language prompts 應先被 map 到 action IDs，再 fallback 到 model；但 mutation 絕不能只靠未確認 prompt 執行。
+
+Operations todo:
+
+- [x] 加入 `edgepulse-ctl agent action` command，承接常用 OpenWrt operations。
+- [x] 實作 read-only actions：`status`、`wifi-status`、`logs-recent`。
+- [x] 實作 confirmed operations：`reconnect-wan` 與 `wifi-set`。
+- [x] 為 wireless status 與 bounded `logread` 加入 read-only allowlist。
+- [x] 為 WAN ifup/ifdown、wireless UCI writes、wireless commit 與 Wi-Fi reload 加入 mutation allowlist。
+- [x] Mutation tools 執行前必須要求 `operator_confirmed` policy 與 `--confirm`。
+- [x] 加入 read-only 與 mutation allowlist decisions 的 unit coverage。
+- [x] 記錄 user intent scenarios、expected behavior、CLI paths、implementation plan 與 safety rules。
+- [ ] 加入 LuCI operation controls，呼叫同一條 `agent action` path。
+- [ ] 加入小型中文/英文 intent classifier，把常見請求對應到 `status`、`wifi-status`、`logs-recent`、`reconnect-wan` 與 `wifi-set`。
+- [ ] 在 action output 與 audit details 進入 LuCI 或 syslog 前 redacts Wi-Fi keys。
+- [ ] 加入 WAN IP、DNS reachability、Wi-Fi radio up/down state 與 associated clients 的 post-action verification。
+- [ ] 為 `ubus`、`logread`、`uci`、`ifdown`、`ifup` 與 `wifi` 加入 fixture integration tests。
+- [ ] 加入 per-action permission switches，讓 deployment 可以只允許 WAN reconnect，而不啟用 Wi-Fi mutation。
+
+Reference:
+
+- [AI Agent OpenWrt 操作情境](ai-agent-openwrt-operations-scenarios.zh-TW.md)
+
+## Phase 8C: Shared Chat And MCP Bridge
+
+狀態：已加入 shared CLI conversation storage；LuCI 與 MCP bridge integration 已規劃
+
+讓 AI Agent conversations 可以被 CLI、LuCI 與外部 AI tools 共同看到。EdgePulse agent 仍是 router-local policy、execution、audit 與 transcript storage 的 source of truth。
+
+Architecture decisions:
+
+- UCI 負責設定 chat 與 MCP behavior，但不存 chat history。
+- `/tmp/edgepulse/edgepulse.db` 儲存 shared conversations 與 messages。
+- CLI、LuCI 與 MCP bridge 都讀寫同一組 conversation IDs。
+- Daemon 應逐步提供本地 `ubus` API，支援 agent chat 與 operations。
+- `openwrt-mcp-server` 應維持為獨立 bridge process，並呼叫 EdgePulse local APIs。
+
+Chat and MCP todo:
+
+- [x] 在 EdgePulse SQLite schema 加入 `agent_conversations` 與 `agent_messages` tables。
+- [x] 將 `edgepulse-ctl agent ask` turns 存進 default shared conversation。
+- [x] 加入 `edgepulse-ctl agent chat ask <conversation_id> <message>`。
+- [x] 加入 `edgepulse-ctl agent chat list [conversation_id]`。
+- [x] 文件化 CLI/LuCI shared chat 與 MCP bridge architecture。
+- [ ] 加入 LuCI wrapper commands：`agent-chat-list` 與 `agent-chat-ask`。
+- [ ] 將 LuCI AI Agent page 從 single diagnostic output 改成 transcript view。
+- [ ] 加入 UCI defaults：`chat_enabled`、`default_conversation_id` 與 `mcp_enabled`。
+- [ ] 加入 local `edgepulse.agent` ubus object，支援 `status`、`chat.ask`、`chat.list`、`action.run`、`policy.show` 與 `audit.list`。
+- [ ] 更新 `openwrt-mcp-server`，將 JSON-RPC methods map 到 EdgePulse local CLI/ubus calls。
+- [ ] 將 `openwrt-mcp-server` 包裝或文件化為 optional companion service，而不是合併進 C daemon。
+- [ ] 驗證 CLI、LuCI 與 MCP 混合送出 messages 後，都能看到同一份 conversation transcript。
+
+Reference:
+
+- [AI Agent 對話與 MCP 整合](ai-agent-chat-and-mcp-integration.zh-TW.md)
+
+## Phase 8D: Local C MCP Adapter
+
+狀態：已完成第一版 local CLI adapter
+
+加入給 OpenWrt device 本機或附近 AI tools 使用的 local C MCP adapter。第一階段不是 remote network service，而是透過既有 C runtime 與 policy layer expose 小範圍 method surface。
+
+Boundary:
+
+- 由 `edgepulse.agent.mcp_enabled` 控制。
+- 第一版先做 local-only CLI adapter：`edgepulse-ctl agent mcp methods` 與 `edgepulse-ctl agent mcp call <method>`。
+- 不提供任意 `shell.exec`、`ubus.call` 或 `uci.set`。
+- `ubus` support 維持 read-only 且 method-specific。
+- `uci` support 只限讀取 EdgePulse config，以及透過既有 action layer 執行 confirmed named actions。
+- State-changing operations 仍必須符合既有 `operator_confirmed` policy 與 explicit confirmation。
+
+第一階段 methods：
+
+- [x] `edgepulse.status`
+- [x] `edgepulse.agent.status`
+- [x] `edgepulse.agent.chat.list`
+- [x] `edgepulse.agent.chat.ask`
+- [x] `edgepulse.agent.action.run`
+- [x] `edgepulse.agent.audit.list`
+- [x] `edgepulse.ubus.status.network`
+- [x] `edgepulse.ubus.status.wireless`
+- [x] `edgepulse.uci.get.edgepulse`
+
+Follow-up todo:
+
+- [ ] 加入 JSON-RPC 2.0 request/response envelope support。
+- [ ] 透過 `ubus` 或 Unix domain socket 加入 long-running local server mode。
+- [ ] 加入 MCP methods 的 UCI method-level ACLs。
+- [ ] 在 LuCI settings 加入 local MCP enablement 與 method exposure review controls。
+- [ ] 為 local C MCP `ubus` 與 `uci` method calls 加入 fixture tests。
+- [ ] Method set 穩定後，決定 local C MCP adapter 要留在 `edgepulse-ctl`、`edgepulse agent`，或拆成獨立 `edgepulse-mcpd` binary。
+
+Reference:
+
+- [本地 C MCP Adapter 與 Rust OpenWrt MCP Server](local-c-mcp-vs-rust-openwrt-mcp.zh-TW.md)
+
 ## MVP Definition
 
 第一個 MVP 完成時，OpenWrt One 應能：

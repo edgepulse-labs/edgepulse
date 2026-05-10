@@ -33,11 +33,14 @@ struct agent_config {
 	int memory_enabled;
 	int shell_enabled;
 	int ubus_enabled;
+	int chat_enabled;
+	int mcp_enabled;
 	int request_timeout_sec;
 	int heartbeat_interval_sec;
 	int tool_timeout_sec;
 	int max_tool_output_bytes;
 	char policy_profile[64];
+	char default_conversation_id[64];
 	char db_path[AGENT_STR_SIZE];
 };
 
@@ -216,11 +219,15 @@ static void init_agent_config(struct agent_config *agent,
 	agent->memory_enabled = 1;
 	agent->shell_enabled = 1;
 	agent->ubus_enabled = 1;
+	agent->chat_enabled = 1;
+	agent->mcp_enabled = 0;
 	agent->request_timeout_sec = 60;
 	agent->heartbeat_interval_sec = 60;
 	agent->tool_timeout_sec = 5;
 	agent->max_tool_output_bytes = 8192;
 	snprintf(agent->policy_profile, sizeof(agent->policy_profile), "%s", "read_only");
+	snprintf(agent->default_conversation_id,
+		 sizeof(agent->default_conversation_id), "%s", "default");
 	snprintf(agent->db_path, sizeof(agent->db_path), "%s", EDGEPULSE_DB_PATH);
 	init_agent_model_config(model, 0);
 }
@@ -328,6 +335,10 @@ static int read_agent_config_models(struct agent_config *agent,
 				agent->shell_enabled = parse_bool_value(value, agent->shell_enabled);
 			else if (strcmp(key, "ubus_enabled") == 0)
 				agent->ubus_enabled = parse_bool_value(value, agent->ubus_enabled);
+			else if (strcmp(key, "chat_enabled") == 0)
+				agent->chat_enabled = parse_bool_value(value, agent->chat_enabled);
+			else if (strcmp(key, "mcp_enabled") == 0)
+				agent->mcp_enabled = parse_bool_value(value, agent->mcp_enabled);
 			else if (strcmp(key, "request_timeout_sec") == 0)
 				agent->request_timeout_sec = parse_int_value(value, agent->request_timeout_sec);
 			else if (strcmp(key, "heartbeat_interval_sec") == 0)
@@ -338,6 +349,10 @@ static int read_agent_config_models(struct agent_config *agent,
 				agent->max_tool_output_bytes = parse_int_value(value, agent->max_tool_output_bytes);
 			else if (strcmp(key, "policy_profile") == 0)
 				snprintf(agent->policy_profile, sizeof(agent->policy_profile), "%s", value);
+			else if (strcmp(key, "default_conversation_id") == 0)
+				snprintf(agent->default_conversation_id,
+					 sizeof(agent->default_conversation_id), "%s",
+					 value[0] ? value : "default");
 		} else if (strcmp(section_type, "model") == 0 && current_model >= 0) {
 			struct agent_model_config *model = &models[current_model];
 
@@ -441,7 +456,8 @@ static int agent_config_is_valid_url(const char *value)
 static int agent_config_has_warnings(const struct agent_config *agent,
 				     const struct agent_model_config *model)
 {
-	if (strcmp(agent->policy_profile, "read_only") != 0)
+	if (strcmp(agent->policy_profile, "read_only") != 0 &&
+	    strcmp(agent->policy_profile, "operator_confirmed") != 0)
 		return 1;
 	if (agent->request_timeout_sec < 1 || agent->request_timeout_sec > 600)
 		return 1;
@@ -475,8 +491,9 @@ static void print_agent_validation(const struct agent_config *agent,
 		first = 0; \
 	} while (0)
 
-	if (strcmp(agent->policy_profile, "read_only") != 0)
-		PRINT_VALIDATION_WARNING("Only the read_only policy profile is supported by the current MVP.");
+	if (strcmp(agent->policy_profile, "read_only") != 0 &&
+	    strcmp(agent->policy_profile, "operator_confirmed") != 0)
+		PRINT_VALIDATION_WARNING("Only the read_only and operator_confirmed policy profiles are supported by the current MVP.");
 	if (agent->request_timeout_sec < 1 || agent->request_timeout_sec > 600)
 		PRINT_VALIDATION_WARNING("request_timeout_sec should be between 1 and 600 seconds.");
 	if (agent->tool_timeout_sec < 1 || agent->tool_timeout_sec > 60)
@@ -593,6 +610,67 @@ static int agent_store_request(const char *db_path, const char *request_id,
 	return rc == SQLITE_DONE ? 0 : -1;
 }
 
+static int agent_store_conversation_messages(const char *db_path,
+					     const char *conversation_id,
+					     const char *request_id,
+					     const char *question,
+					     const char *model_status,
+					     const char *answer)
+{
+	static const char *conversation_sql =
+		"INSERT INTO agent_conversations(conversation_id, created_at, updated_at, title) "
+		"VALUES(?, strftime('%s','now'), strftime('%s','now'), ?) "
+		"ON CONFLICT(conversation_id) DO UPDATE SET updated_at=strftime('%s','now');";
+	static const char *message_sql =
+		"INSERT INTO agent_messages(conversation_id, request_id, created_at, role, content, model_status) "
+		"VALUES(?, ?, strftime('%s','now'), ?, ?, ?);";
+	sqlite3 *db = NULL;
+	sqlite3_stmt *stmt = NULL;
+	const char *cid = conversation_id && conversation_id[0] ? conversation_id : "default";
+	int rc = -1;
+
+	if (edgepulse_init_database(db_path) != 0)
+		return -1;
+	if (sqlite3_open(db_path, &db) != SQLITE_OK)
+		return -1;
+
+	if (sqlite3_prepare_v2(db, conversation_sql, -1, &stmt, NULL) != SQLITE_OK)
+		goto out;
+	sqlite3_bind_text(stmt, 1, cid, -1, SQLITE_TRANSIENT);
+	sqlite3_bind_text(stmt, 2, question ? question : "", -1, SQLITE_TRANSIENT);
+	if (sqlite3_step(stmt) != SQLITE_DONE)
+		goto out;
+	sqlite3_finalize(stmt);
+	stmt = NULL;
+
+	if (sqlite3_prepare_v2(db, message_sql, -1, &stmt, NULL) != SQLITE_OK)
+		goto out;
+	sqlite3_bind_text(stmt, 1, cid, -1, SQLITE_TRANSIENT);
+	sqlite3_bind_text(stmt, 2, request_id, -1, SQLITE_TRANSIENT);
+	sqlite3_bind_text(stmt, 3, "user", -1, SQLITE_TRANSIENT);
+	sqlite3_bind_text(stmt, 4, question ? question : "", -1, SQLITE_TRANSIENT);
+	sqlite3_bind_text(stmt, 5, model_status ? model_status : "", -1, SQLITE_TRANSIENT);
+	if (sqlite3_step(stmt) != SQLITE_DONE)
+		goto out;
+	sqlite3_finalize(stmt);
+	stmt = NULL;
+
+	if (sqlite3_prepare_v2(db, message_sql, -1, &stmt, NULL) != SQLITE_OK)
+		goto out;
+	sqlite3_bind_text(stmt, 1, cid, -1, SQLITE_TRANSIENT);
+	sqlite3_bind_text(stmt, 2, request_id, -1, SQLITE_TRANSIENT);
+	sqlite3_bind_text(stmt, 3, "assistant", -1, SQLITE_TRANSIENT);
+	sqlite3_bind_text(stmt, 4, answer ? answer : "", -1, SQLITE_TRANSIENT);
+	sqlite3_bind_text(stmt, 5, model_status ? model_status : "", -1, SQLITE_TRANSIENT);
+	rc = sqlite3_step(stmt) == SQLITE_DONE ? 0 : -1;
+
+out:
+	if (stmt)
+		sqlite3_finalize(stmt);
+	sqlite3_close(db);
+	return rc;
+}
+
 static int agent_command_allowed(char *const argv[])
 {
 	if (!argv || !argv[0])
@@ -611,14 +689,58 @@ static int agent_command_allowed(char *const argv[])
 		if (strcmp(argv[2], "network.interface") == 0 &&
 		    strcmp(argv[3], "dump") == 0 && !argv[4])
 			return 1;
+		if (strcmp(argv[2], "network.wireless") == 0 &&
+		    strcmp(argv[3], "status") == 0 && !argv[4])
+			return 1;
 		return 0;
+	}
+	if (strcmp(argv[0], "logread") == 0) {
+		if (argv[1] && strcmp(argv[1], "-l") == 0 && argv[2] && !argv[3]) {
+			int parsed;
+			return edgepulse_parse_positive_int(argv[2], &parsed) == 0 &&
+				parsed <= 200;
+		}
+		return 0;
+	}
+	if (strcmp(argv[0], "uci") == 0)
+		return argv[1] && strcmp(argv[1], "show") == 0 &&
+			argv[2] && strcmp(argv[2], "edgepulse") == 0 && !argv[3];
+	return 0;
+}
+
+static int agent_mutating_command_allowed(char *const argv[])
+{
+	static const char ssid_prefix[] = "wireless.@wifi-iface[0].ssid=";
+	static const char key_prefix[] = "wireless.@wifi-iface[0].key=";
+	static const char encryption_prefix[] = "wireless.@wifi-iface[0].encryption=";
+
+	if (!argv || !argv[0])
+		return 0;
+	if ((strcmp(argv[0], "ifdown") == 0 || strcmp(argv[0], "ifup") == 0) &&
+	    argv[1] && strcmp(argv[1], "wan") == 0 && !argv[2])
+		return 1;
+	if (strcmp(argv[0], "wifi") == 0 && argv[1] &&
+	    strcmp(argv[1], "reload") == 0 && !argv[2])
+		return 1;
+	if (strcmp(argv[0], "uci") == 0 && argv[1]) {
+		if (strcmp(argv[1], "commit") == 0 && argv[2] &&
+		    strcmp(argv[2], "wireless") == 0 && !argv[3])
+			return 1;
+		if (strcmp(argv[1], "set") == 0 && argv[2] && !argv[3]) {
+			return strncmp(argv[2], ssid_prefix, strlen(ssid_prefix)) == 0 ||
+				strncmp(argv[2], key_prefix, strlen(key_prefix)) == 0 ||
+				strncmp(argv[2], encryption_prefix,
+					strlen(encryption_prefix)) == 0 ||
+				strcmp(argv[2], "wireless.@wifi-iface[0].disabled=0") == 0;
+		}
 	}
 	return 0;
 }
 
-static int agent_run_read_only_command(const char *name, char *const argv[],
-				       int timeout_sec, int output_limit,
-				       struct agent_tool_result *result)
+static int agent_run_policy_command(const char *name, char *const argv[],
+				    int timeout_sec, int output_limit,
+				    int mutation_allowed,
+				    struct agent_tool_result *result)
 {
 	int pipefd[2];
 	pid_t pid;
@@ -631,9 +753,10 @@ static int agent_run_read_only_command(const char *name, char *const argv[],
 	snprintf(result->status, sizeof(result->status), "%s", "blocked");
 	result->exit_code = -1;
 
-	if (!agent_command_allowed(argv)) {
+	if ((!mutation_allowed && !agent_command_allowed(argv)) ||
+	    (mutation_allowed && !agent_mutating_command_allowed(argv))) {
 		snprintf(result->output, sizeof(result->output),
-			 "Command blocked by read-only allowlist.");
+			 "Command blocked by policy allowlist.");
 		return -1;
 	}
 
@@ -728,16 +851,32 @@ static int agent_run_read_only_command(const char *name, char *const argv[],
 	return result->exit_code == 0 ? 0 : -1;
 }
 
-static void print_agent_tool_json(const struct agent_tool_result *result)
+static int agent_run_read_only_command(const char *name, char *const argv[],
+				       int timeout_sec, int output_limit,
+				       struct agent_tool_result *result)
+{
+	return agent_run_policy_command(name, argv, timeout_sec, output_limit,
+					0, result);
+}
+
+static void print_agent_tool_json_mode(const struct agent_tool_result *result,
+				       const char *mode)
 {
 	printf("    { \"name\": ");
 	print_json_string(result->name);
-	printf(", \"mode\": \"read_only\", \"status\": ");
+	printf(", \"mode\": ");
+	print_json_string(mode);
+	printf(", \"status\": ");
 	print_json_string(result->status);
 	printf(", \"exit_code\": %d, \"elapsed_ms\": %ld, \"output\": ",
 	       result->exit_code, result->elapsed_ms);
 	print_json_string(result->output);
 	printf(" }");
+}
+
+static void print_agent_tool_json(const struct agent_tool_result *result)
+{
+	print_agent_tool_json_mode(result, "read_only");
 }
 
 static void agent_build_model_request(const struct agent_config *agent,
@@ -1692,8 +1831,13 @@ static int EDGEPULSE_AGENT_UNUSED print_agent_status(void)
 	printf("    \"memory_enabled\": %s,\n", agent.memory_enabled ? "true" : "false");
 	printf("    \"shell_enabled\": %s,\n", agent.shell_enabled ? "true" : "false");
 	printf("    \"ubus_enabled\": %s,\n", agent.ubus_enabled ? "true" : "false");
+	printf("    \"chat_enabled\": %s,\n", agent.chat_enabled ? "true" : "false");
+	printf("    \"mcp_enabled\": %s,\n", agent.mcp_enabled ? "true" : "false");
 	printf("    \"policy_profile\": ");
 	print_json_string(agent.policy_profile);
+	printf(",\n");
+	printf("    \"default_conversation_id\": ");
+	print_json_string(agent.default_conversation_id);
 	printf(",\n");
 	printf("    \"db_path\": ");
 	print_json_string(agent.db_path);
@@ -1913,7 +2057,8 @@ static void print_agent_findings(const struct edgepulse_snapshot *snapshot,
 	printf("  ],\n");
 }
 
-static int EDGEPULSE_AGENT_UNUSED print_agent_diagnose(const char *question)
+static int EDGEPULSE_AGENT_UNUSED print_agent_diagnose_conversation(
+	const char *question, const char *conversation_id)
 {
 	struct agent_config agent;
 	struct agent_model_config models[AGENT_MAX_MODELS];
@@ -1926,6 +2071,7 @@ static int EDGEPULSE_AGENT_UNUSED print_agent_diagnose(const char *question)
 	char memory_summary[512];
 	char answer[1024];
 	char model_prompt[2048];
+	char effective_conversation_id[64];
 	struct agent_tool_result uname_result;
 	struct agent_tool_result uptime_result;
 	struct agent_tool_result ubus_board_result;
@@ -1948,6 +2094,10 @@ static int EDGEPULSE_AGENT_UNUSED print_agent_diagnose(const char *question)
 	answer[0] = '\0';
 	int model_count = 0;
 	read_agent_config_models(&agent, models, AGENT_MAX_MODELS, &model_count);
+	snprintf(effective_conversation_id, sizeof(effective_conversation_id), "%s",
+		 conversation_id && conversation_id[0] ? conversation_id :
+		 agent.default_conversation_id[0] ? agent.default_conversation_id :
+		 "default");
 	if (model_count > 0)
 		model = models[0];
 	else
@@ -2127,6 +2277,9 @@ static int EDGEPULSE_AGENT_UNUSED print_agent_diagnose(const char *question)
 		agent_store_memory(agent.db_path, memory_summary);
 	agent_store_request(agent.db_path, request_id, question ? question : "",
 			    model_status, answer);
+	agent_store_conversation_messages(agent.db_path, effective_conversation_id, request_id,
+					  question ? question : "", model_status,
+					  answer);
 	agent_syslog(LOG_INFO, "request completed request_id=%s model_status=%s answer_source=%s",
 		     request_id, model_status,
 		     (strcmp(model_response.status, "ok") == 0 && answer[0] != '\0') ?
@@ -2136,6 +2289,9 @@ static int EDGEPULSE_AGENT_UNUSED print_agent_diagnose(const char *question)
 	printf("  \"status\": \"ok\",\n");
 	printf("  \"request_id\": ");
 	print_json_string(request_id);
+	printf(",\n");
+	printf("  \"conversation_id\": ");
+	print_json_string(effective_conversation_id);
 	printf(",\n");
 	printf("  \"mode\": \"read_only_diagnostic\",\n");
 	printf("  \"question\": ");
@@ -2198,6 +2354,11 @@ static int EDGEPULSE_AGENT_UNUSED print_agent_diagnose(const char *question)
 	printf("}\n");
 
 	return 0;
+}
+
+static int EDGEPULSE_AGENT_UNUSED print_agent_diagnose(const char *question)
+{
+	return print_agent_diagnose_conversation(question, "default");
 }
 
 static int EDGEPULSE_AGENT_UNUSED print_agent_memory_list(void)
@@ -2305,6 +2466,94 @@ unavailable:
 	return 0;
 }
 
+static int EDGEPULSE_AGENT_UNUSED print_agent_chat_list(const char *conversation_id)
+{
+	static const char *conversation_sql =
+		"SELECT conversation_id, created_at, updated_at, title "
+		"FROM agent_conversations ORDER BY updated_at DESC LIMIT 25;";
+	static const char *message_sql =
+		"SELECT id, request_id, created_at, role, content, model_status "
+		"FROM agent_messages WHERE conversation_id = ? "
+		"ORDER BY created_at ASC, id ASC LIMIT 100;";
+	struct agent_config agent;
+	struct agent_model_config model;
+	sqlite3 *db = NULL;
+	sqlite3_stmt *stmt = NULL;
+	int first = 1;
+	int rc;
+
+	read_agent_config(&agent, &model);
+	if (edgepulse_init_database(agent.db_path) != 0 ||
+	    sqlite3_open(agent.db_path, &db) != SQLITE_OK)
+		goto unavailable;
+
+	if (conversation_id && conversation_id[0]) {
+		if (sqlite3_prepare_v2(db, message_sql, -1, &stmt, NULL) != SQLITE_OK)
+			goto unavailable;
+		sqlite3_bind_text(stmt, 1, conversation_id, -1, SQLITE_TRANSIENT);
+
+		printf("{\n");
+		printf("  \"conversation_id\": ");
+		print_json_string(conversation_id);
+		printf(",\n");
+		printf("  \"messages\": [\n");
+		while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+			if (!first)
+				printf(",\n");
+			first = 0;
+			printf("    { \"id\": %lld, \"request_id\": ",
+			       sqlite3_column_int64(stmt, 0));
+			print_json_string((const char *)sqlite3_column_text(stmt, 1));
+			printf(", \"created_at\": %lld, \"role\": ",
+			       sqlite3_column_int64(stmt, 2));
+			print_json_string((const char *)sqlite3_column_text(stmt, 3));
+			printf(", \"content\": ");
+			print_json_string((const char *)sqlite3_column_text(stmt, 4));
+			printf(", \"model_status\": ");
+			print_json_string((const char *)sqlite3_column_text(stmt, 5));
+			printf(" }");
+		}
+		printf("\n");
+		printf("  ]\n");
+		printf("}\n");
+		sqlite3_finalize(stmt);
+		sqlite3_close(db);
+		return rc == SQLITE_DONE ? 0 : 1;
+	}
+
+	if (sqlite3_prepare_v2(db, conversation_sql, -1, &stmt, NULL) != SQLITE_OK)
+		goto unavailable;
+	printf("{\n");
+	printf("  \"conversations\": [\n");
+	while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+		if (!first)
+			printf(",\n");
+		first = 0;
+		printf("    { \"conversation_id\": ");
+		print_json_string((const char *)sqlite3_column_text(stmt, 0));
+		printf(", \"created_at\": %lld, \"updated_at\": %lld, \"title\": ",
+		       sqlite3_column_int64(stmt, 1),
+		       sqlite3_column_int64(stmt, 2));
+		print_json_string((const char *)sqlite3_column_text(stmt, 3));
+		printf(" }");
+	}
+	printf("\n");
+	printf("  ]\n");
+	printf("}\n");
+
+	sqlite3_finalize(stmt);
+	sqlite3_close(db);
+	return rc == SQLITE_DONE ? 0 : 1;
+
+unavailable:
+	if (stmt)
+		sqlite3_finalize(stmt);
+	if (db)
+		sqlite3_close(db);
+	printf("{ \"conversations\": [], \"messages\": [], \"status\": \"unavailable\" }\n");
+	return 0;
+}
+
 static int EDGEPULSE_AGENT_UNUSED delete_agent_memory(const char *id)
 {
 	struct agent_config agent;
@@ -2354,6 +2603,296 @@ static int EDGEPULSE_AGENT_UNUSED delete_agent_memory(const char *id)
 	return rc == SQLITE_DONE ? 0 : 1;
 }
 
+static int agent_arg_has_confirm(int argc, char **argv)
+{
+	for (int i = 0; i < argc; i++) {
+		if (strcmp(argv[i], "--confirm") == 0)
+			return 1;
+	}
+	return 0;
+}
+
+static const char *agent_arg_value(int argc, char **argv, const char *name)
+{
+	for (int i = 0; i + 1 < argc; i++) {
+		if (strcmp(argv[i], name) == 0)
+			return argv[i + 1];
+	}
+	return NULL;
+}
+
+static int agent_value_is_safe(const char *value, size_t max_len)
+{
+	size_t len;
+
+	if (!value)
+		return 0;
+	len = strlen(value);
+	if (len == 0 || len > max_len)
+		return 0;
+	for (size_t i = 0; i < len; i++) {
+		unsigned char c = (unsigned char)value[i];
+		if (c < 32 || c == '\'' || c == '"' || c == '\\')
+			return 0;
+	}
+	return 1;
+}
+
+static int agent_policy_allows_mutation(const struct agent_config *agent)
+{
+	return strcmp(agent->policy_profile, "operator_confirmed") == 0;
+}
+
+static void print_agent_confirmation_required(const char *action,
+					      const char *reason)
+{
+	printf("{\n");
+	printf("  \"status\": \"confirmation_required\",\n");
+	printf("  \"action\": ");
+	print_json_string(action);
+	printf(",\n");
+	printf("  \"reason\": ");
+	print_json_string(reason);
+	printf(",\n");
+	printf("  \"required_policy_profile\": \"operator_confirmed\",\n");
+	printf("  \"required_flag\": \"--confirm\"\n");
+	printf("}\n");
+}
+
+static void print_agent_action_result(const char *action,
+				      const char *request_id,
+				      struct agent_tool_result *results,
+				      int count)
+{
+	int ok = 1;
+
+	for (int i = 0; i < count; i++) {
+		if (strcmp(results[i].status, "ok") != 0)
+			ok = 0;
+	}
+
+	printf("{\n");
+	printf("  \"status\": ");
+	print_json_string(ok ? "ok" : "error");
+	printf(",\n");
+	printf("  \"request_id\": ");
+	print_json_string(request_id);
+	printf(",\n");
+	printf("  \"action\": ");
+	print_json_string(action);
+	printf(",\n");
+	printf("  \"tools\": [\n");
+	for (int i = 0; i < count; i++) {
+		const char *mode =
+			(strncmp(results[i].name, "uci.", 4) == 0 ||
+			 strncmp(results[i].name, "netifd.", 7) == 0 ||
+			 strcmp(results[i].name, "wifi.reload") == 0) ?
+			"confirmed_mutation" : "read_only";
+		if (i > 0)
+			printf(",\n");
+		printf("    ");
+		print_agent_tool_json_mode(&results[i], mode);
+	}
+	printf("\n");
+	printf("  ],\n");
+	printf("  \"answer\": ");
+	if (ok)
+		print_json_string("Action completed. Review tool output and OpenWrt status to confirm the requested state.");
+	else
+		print_json_string("Action did not fully complete. Review tool status and output for the failing step.");
+	printf("\n");
+	printf("}\n");
+}
+
+static int EDGEPULSE_AGENT_UNUSED print_agent_action(int argc, char **argv)
+{
+	struct agent_config agent;
+	struct agent_model_config model;
+	char request_id[64];
+	const char *action;
+	struct agent_tool_result results[8];
+	int result_count = 0;
+
+	if (argc < 4) {
+		fprintf(stderr, "Usage: edgepulse-ctl agent action <status|wifi-status|logs-recent|reconnect-wan|wifi-set> [--confirm] [options]\n");
+		return 2;
+	}
+
+	read_agent_config(&agent, &model);
+	action = argv[3];
+	agent_make_request_id(request_id, sizeof(request_id));
+
+	if (!agent.enabled) {
+		printf("{ \"status\": \"disabled\", \"answer\": \"EdgePulse AI agent is disabled.\" }\n");
+		return 0;
+	}
+
+	agent_store_audit(agent.db_path, request_id, "action.requested", action);
+	agent_syslog(LOG_INFO, "action requested request_id=%s action=%s policy=%s",
+		     request_id, action, agent.policy_profile);
+
+	if (strcmp(action, "status") == 0 || strcmp(action, "wifi-status") == 0 ||
+	    strcmp(action, "logs-recent") == 0) {
+		char *const uptime_argv[] = { "uptime", NULL };
+		char *const network_argv[] = { "ubus", "call", "network.interface", "dump", NULL };
+		char *const wireless_argv[] = { "ubus", "call", "network.wireless", "status", NULL };
+		char *const logs_argv[] = { "logread", "-l", "80", NULL };
+
+		if (strcmp(action, "status") == 0) {
+			agent_run_read_only_command("shell.uptime", uptime_argv,
+						    agent.tool_timeout_sec,
+						    agent.max_tool_output_bytes,
+						    &results[result_count++]);
+			agent_run_read_only_command("ubus.network.interface.dump",
+						    network_argv,
+						    agent.tool_timeout_sec,
+						    agent.max_tool_output_bytes,
+						    &results[result_count++]);
+			agent_run_read_only_command("ubus.network.wireless.status",
+						    wireless_argv,
+						    agent.tool_timeout_sec,
+						    agent.max_tool_output_bytes,
+						    &results[result_count++]);
+		} else if (strcmp(action, "wifi-status") == 0) {
+			agent_run_read_only_command("ubus.network.wireless.status",
+						    wireless_argv,
+						    agent.tool_timeout_sec,
+						    agent.max_tool_output_bytes,
+						    &results[result_count++]);
+		} else {
+			agent_run_read_only_command("shell.logread", logs_argv,
+						    agent.tool_timeout_sec,
+						    agent.max_tool_output_bytes,
+						    &results[result_count++]);
+		}
+
+		for (int i = 0; i < result_count; i++)
+			agent_store_audit(agent.db_path, request_id, results[i].name,
+					  results[i].status);
+		print_agent_action_result(action, request_id, results, result_count);
+		return 0;
+	}
+
+	if (strcmp(action, "reconnect-wan") == 0) {
+		char *const ifdown_argv[] = { "ifdown", "wan", NULL };
+		char *const ifup_argv[] = { "ifup", "wan", NULL };
+		char *const network_argv[] = { "ubus", "call", "network.interface", "dump", NULL };
+
+		if (!agent_policy_allows_mutation(&agent) ||
+		    !agent_arg_has_confirm(argc - 4, argv + 4)) {
+			print_agent_confirmation_required(action,
+							  "Reconnecting WAN changes network state and may interrupt connectivity.");
+			return 0;
+		}
+
+		agent_run_policy_command("netifd.ifdown.wan", ifdown_argv,
+					 agent.tool_timeout_sec,
+					 agent.max_tool_output_bytes, 1,
+					 &results[result_count++]);
+		agent_run_policy_command("netifd.ifup.wan", ifup_argv,
+					 agent.tool_timeout_sec,
+					 agent.max_tool_output_bytes, 1,
+					 &results[result_count++]);
+		agent_run_read_only_command("ubus.network.interface.dump",
+					    network_argv,
+					    agent.tool_timeout_sec,
+					    agent.max_tool_output_bytes,
+					    &results[result_count++]);
+		for (int i = 0; i < result_count; i++)
+			agent_store_audit(agent.db_path, request_id, results[i].name,
+					  results[i].status);
+		print_agent_action_result(action, request_id, results, result_count);
+		return 0;
+	}
+
+	if (strcmp(action, "wifi-set") == 0) {
+		const char *ssid = agent_arg_value(argc - 4, argv + 4, "--ssid");
+		const char *key = agent_arg_value(argc - 4, argv + 4, "--key");
+		const char *encryption = agent_arg_value(argc - 4, argv + 4, "--encryption");
+		char ssid_arg[160];
+		char key_arg[160];
+		char encryption_arg[96];
+		char disabled_arg[] = "wireless.@wifi-iface[0].disabled=0";
+		char *uci_ssid_argv[] = { "uci", "set", ssid_arg, NULL };
+		char *uci_key_argv[] = { "uci", "set", key_arg, NULL };
+		char *uci_encryption_argv[] = { "uci", "set", encryption_arg, NULL };
+		char *uci_disabled_argv[] = { "uci", "set", disabled_arg, NULL };
+		char *const uci_commit_argv[] = { "uci", "commit", "wireless", NULL };
+		char *const wifi_reload_argv[] = { "wifi", "reload", NULL };
+		char *const wireless_argv[] = { "ubus", "call", "network.wireless", "status", NULL };
+
+		if (!ssid || !agent_value_is_safe(ssid, 64)) {
+			fprintf(stderr, "edgepulse-ctl: wifi-set requires a safe --ssid value up to 64 bytes\n");
+			return 2;
+		}
+		if (key && (!agent_value_is_safe(key, 64) || strlen(key) < 8)) {
+			fprintf(stderr, "edgepulse-ctl: --key must be 8-64 safe bytes when provided\n");
+			return 2;
+		}
+		if (!encryption)
+			encryption = key ? "psk2" : "none";
+		if (strcmp(encryption, "none") != 0 && strcmp(encryption, "psk2") != 0 &&
+		    strcmp(encryption, "sae-mixed") != 0) {
+			fprintf(stderr, "edgepulse-ctl: --encryption must be none, psk2, or sae-mixed\n");
+			return 2;
+		}
+		if (!agent_policy_allows_mutation(&agent) ||
+		    !agent_arg_has_confirm(argc - 4, argv + 4)) {
+			print_agent_confirmation_required(action,
+							  "Changing Wi-Fi settings writes UCI wireless config and reloads Wi-Fi.");
+			return 0;
+		}
+
+		snprintf(ssid_arg, sizeof(ssid_arg),
+			 "wireless.@wifi-iface[0].ssid=%s", ssid);
+		snprintf(encryption_arg, sizeof(encryption_arg),
+			 "wireless.@wifi-iface[0].encryption=%s", encryption);
+		snprintf(key_arg, sizeof(key_arg),
+			 "wireless.@wifi-iface[0].key=%s", key ? key : "");
+
+		agent_run_policy_command("uci.wireless.ssid", uci_ssid_argv,
+					 agent.tool_timeout_sec,
+					 agent.max_tool_output_bytes, 1,
+					 &results[result_count++]);
+		agent_run_policy_command("uci.wireless.encryption",
+					 uci_encryption_argv,
+					 agent.tool_timeout_sec,
+					 agent.max_tool_output_bytes, 1,
+					 &results[result_count++]);
+		if (key) {
+			agent_run_policy_command("uci.wireless.key", uci_key_argv,
+						 agent.tool_timeout_sec,
+						 agent.max_tool_output_bytes, 1,
+						 &results[result_count++]);
+		}
+		agent_run_policy_command("uci.wireless.enable", uci_disabled_argv,
+					 agent.tool_timeout_sec,
+					 agent.max_tool_output_bytes, 1,
+					 &results[result_count++]);
+		agent_run_policy_command("uci.wireless.commit", uci_commit_argv,
+					 agent.tool_timeout_sec,
+					 agent.max_tool_output_bytes, 1,
+					 &results[result_count++]);
+		agent_run_policy_command("wifi.reload", wifi_reload_argv,
+					 agent.tool_timeout_sec,
+					 agent.max_tool_output_bytes, 1,
+					 &results[result_count++]);
+		agent_run_read_only_command("ubus.network.wireless.status",
+					    wireless_argv,
+					    agent.tool_timeout_sec,
+					    agent.max_tool_output_bytes,
+					    &results[result_count++]);
+		for (int i = 0; i < result_count; i++)
+			agent_store_audit(agent.db_path, request_id, results[i].name,
+					  results[i].status);
+		print_agent_action_result(action, request_id, results, result_count);
+		return 0;
+	}
+
+	fprintf(stderr, "Usage: edgepulse-ctl agent action <status|wifi-status|logs-recent|reconnect-wan|wifi-set> [--confirm] [options]\n");
+	return 2;
+}
+
 static int EDGEPULSE_AGENT_UNUSED print_agent_policy(void)
 {
 	struct agent_config agent;
@@ -2364,13 +2903,165 @@ static int EDGEPULSE_AGENT_UNUSED print_agent_policy(void)
 	printf("  \"policy_profile\": ");
 	print_json_string(agent.policy_profile);
 	printf(",\n");
-	printf("  \"mode\": \"read_only\",\n");
-	printf("  \"allowed_tools\": [\"edgepulse_snapshot\", \"shell.uname\", \"shell.uptime\", \"ubus.system.board\", \"ubus.system.info\", \"ubus.network.interface.dump\"],\n");
-	printf("  \"blocked_categories\": [\"file_deletion\", \"uci_mutation\", \"service_restart\", \"package_install_remove\", \"firewall_change\", \"arbitrary_shell\"],\n");
+	printf("  \"mode\": ");
+	print_json_string(agent_policy_allows_mutation(&agent) ?
+			  "operator_confirmed" : "read_only");
+	printf(",\n");
+	printf("  \"allowed_tools\": [\"edgepulse_snapshot\", \"shell.uname\", \"shell.uptime\", \"shell.logread\", \"ubus.system.board\", \"ubus.system.info\", \"ubus.network.interface.dump\", \"ubus.network.wireless.status\"],\n");
+	printf("  \"confirmed_actions\": [\"reconnect-wan\", \"wifi-set\"],\n");
+	printf("  \"blocked_categories\": [\"file_deletion\", \"package_install_remove\", \"firewall_change\", \"arbitrary_shell\", \"unconfirmed_mutation\"],\n");
 	print_agent_validation(&agent, &model);
 	printf("\n");
 	printf("}\n");
 	return 0;
+}
+
+static int EDGEPULSE_AGENT_UNUSED print_agent_mcp_methods(void)
+{
+	struct agent_config agent;
+	struct agent_model_config model;
+
+	read_agent_config(&agent, &model);
+	printf("{\n");
+	printf("  \"mcp_enabled\": %s,\n", agent.mcp_enabled ? "true" : "false");
+	printf("  \"transport\": \"local_cli_adapter\",\n");
+	printf("  \"methods\": [\n");
+	printf("    { \"name\": \"edgepulse.status\", \"mode\": \"read_only\" },\n");
+	printf("    { \"name\": \"edgepulse.agent.status\", \"mode\": \"read_only\" },\n");
+	printf("    { \"name\": \"edgepulse.agent.chat.list\", \"mode\": \"read_only\" },\n");
+	printf("    { \"name\": \"edgepulse.agent.chat.ask\", \"mode\": \"agent_request\" },\n");
+	printf("    { \"name\": \"edgepulse.agent.action.run\", \"mode\": \"policy_gated\" },\n");
+	printf("    { \"name\": \"edgepulse.agent.audit.list\", \"mode\": \"read_only\" },\n");
+	printf("    { \"name\": \"edgepulse.ubus.status.network\", \"mode\": \"read_only\" },\n");
+	printf("    { \"name\": \"edgepulse.ubus.status.wireless\", \"mode\": \"read_only\" },\n");
+	printf("    { \"name\": \"edgepulse.uci.get.edgepulse\", \"mode\": \"read_only\" }\n");
+	printf("  ]\n");
+	printf("}\n");
+	return 0;
+}
+
+static int print_agent_mcp_tool_call(const char *method, const char *tool_name,
+				     char *const tool_argv[])
+{
+	struct agent_config agent;
+	struct agent_model_config model;
+	struct agent_tool_result result;
+	char request_id[64];
+
+	read_agent_config(&agent, &model);
+	agent_make_request_id(request_id, sizeof(request_id));
+	if (!agent.mcp_enabled) {
+		printf("{ \"status\": \"disabled\", \"method\": ");
+		print_json_string(method);
+		printf(", \"answer\": \"EdgePulse local C MCP adapter is disabled by edgepulse.agent.mcp_enabled.\" }\n");
+		return 0;
+	}
+
+	agent_store_audit(agent.db_path, request_id, "mcp.call", method);
+	agent_run_read_only_command(tool_name, tool_argv, agent.tool_timeout_sec,
+				    agent.max_tool_output_bytes, &result);
+	agent_store_audit(agent.db_path, request_id, result.name, result.status);
+
+	printf("{\n");
+	printf("  \"status\": ");
+	print_json_string(strcmp(result.status, "ok") == 0 ? "ok" : "error");
+	printf(",\n");
+	printf("  \"request_id\": ");
+	print_json_string(request_id);
+	printf(",\n");
+	printf("  \"method\": ");
+	print_json_string(method);
+	printf(",\n");
+	printf("  \"tool\":\n");
+	print_agent_tool_json(&result);
+	printf("\n");
+	printf("}\n");
+	return strcmp(result.status, "ok") == 0 ? 0 : 1;
+}
+
+static int EDGEPULSE_AGENT_UNUSED handle_agent_mcp_call(int argc, char **argv)
+{
+	struct agent_config agent;
+	struct agent_model_config model;
+	const char *method;
+
+	if (argc < 5) {
+		fprintf(stderr, "Usage: edgepulse-ctl agent mcp call <method> [args]\n");
+		return 2;
+	}
+
+	read_agent_config(&agent, &model);
+	method = argv[4];
+
+	if (!agent.mcp_enabled) {
+		printf("{ \"status\": \"disabled\", \"method\": ");
+		print_json_string(method);
+		printf(", \"answer\": \"EdgePulse local C MCP adapter is disabled by edgepulse.agent.mcp_enabled.\" }\n");
+		return 0;
+	}
+
+	if (strcmp(method, "edgepulse.status") == 0)
+		return print_status();
+	if (strcmp(method, "edgepulse.agent.status") == 0)
+		return print_agent_status();
+	if (strcmp(method, "edgepulse.agent.audit.list") == 0)
+		return print_agent_audit_list();
+	if (strcmp(method, "edgepulse.agent.chat.list") == 0)
+		return print_agent_chat_list(argc >= 6 ? argv[5] : NULL);
+	if (strcmp(method, "edgepulse.agent.chat.ask") == 0) {
+		if (argc < 7) {
+			fprintf(stderr, "Usage: edgepulse-ctl agent mcp call edgepulse.agent.chat.ask <conversation_id> <message>\n");
+			return 2;
+		}
+		return print_agent_diagnose_conversation(argv[6], argv[5]);
+	}
+	if (strcmp(method, "edgepulse.agent.action.run") == 0) {
+		char *action_argv[16];
+		int action_argc = 4;
+
+		if (argc < 6) {
+			fprintf(stderr, "Usage: edgepulse-ctl agent mcp call edgepulse.agent.action.run <action> [args]\n");
+			return 2;
+		}
+		action_argv[0] = argv[0];
+		action_argv[1] = argv[1];
+		action_argv[2] = "action";
+		action_argv[3] = argv[5];
+		for (int i = 6; i < argc && action_argc < 15; i++)
+			action_argv[action_argc++] = argv[i];
+		action_argv[action_argc] = NULL;
+		return print_agent_action(action_argc, action_argv);
+	}
+	if (strcmp(method, "edgepulse.ubus.status.network") == 0) {
+		char *const ubus_network_argv[] = { "ubus", "call", "network.interface", "dump", NULL };
+		return print_agent_mcp_tool_call(method, "ubus.network.interface.dump",
+						 ubus_network_argv);
+	}
+	if (strcmp(method, "edgepulse.ubus.status.wireless") == 0) {
+		char *const ubus_wireless_argv[] = { "ubus", "call", "network.wireless", "status", NULL };
+		return print_agent_mcp_tool_call(method, "ubus.network.wireless.status",
+						 ubus_wireless_argv);
+	}
+	if (strcmp(method, "edgepulse.uci.get.edgepulse") == 0) {
+		char *const uci_argv[] = { "uci", "show", "edgepulse", NULL };
+		return print_agent_mcp_tool_call(method, "uci.edgepulse.show",
+						 uci_argv);
+	}
+
+	printf("{ \"status\": \"error\", \"method\": ");
+	print_json_string(method);
+	printf(", \"answer\": \"Unsupported EdgePulse local C MCP method.\" }\n");
+	return 2;
+}
+
+static int EDGEPULSE_AGENT_UNUSED handle_agent_mcp_command(int argc, char **argv)
+{
+	if (argc >= 4 && strcmp(argv[3], "methods") == 0)
+		return print_agent_mcp_methods();
+	if (argc >= 4 && strcmp(argv[3], "call") == 0)
+		return handle_agent_mcp_call(argc, argv);
+	fprintf(stderr, "Usage: edgepulse-ctl agent mcp <methods|call> [method] [args]\n");
+	return 2;
 }
 
 static int handle_agent_command(int argc, char **argv)
@@ -2385,7 +3076,7 @@ static int handle_agent_command(int argc, char **argv)
 	return 0;
 #else
 	if (argc < 3) {
-		fprintf(stderr, "Usage: edgepulse-ctl agent <status|diagnose|ask|memory|models|audit|policy> [message]\n");
+		fprintf(stderr, "Usage: edgepulse-ctl agent <status|diagnose|ask|chat|action|mcp|memory|models|audit|policy> [message]\n");
 		return 2;
 	}
 
@@ -2402,6 +3093,26 @@ static int handle_agent_command(int argc, char **argv)
 		}
 		return print_agent_diagnose(argv[3]);
 	}
+
+	if (strcmp(argv[2], "chat") == 0) {
+		if (argc >= 4 && strcmp(argv[3], "ask") == 0) {
+			if (argc < 6) {
+				fprintf(stderr, "Usage: edgepulse-ctl agent chat ask <conversation_id> <message>\n");
+				return 2;
+			}
+			return print_agent_diagnose_conversation(argv[5], argv[4]);
+		}
+		if (argc >= 4 && strcmp(argv[3], "list") == 0)
+			return print_agent_chat_list(argc >= 5 ? argv[4] : NULL);
+		fprintf(stderr, "Usage: edgepulse-ctl agent chat <ask|list> [conversation_id] [message]\n");
+		return 2;
+	}
+
+	if (strcmp(argv[2], "action") == 0)
+		return print_agent_action(argc, argv);
+
+	if (strcmp(argv[2], "mcp") == 0)
+		return handle_agent_mcp_command(argc, argv);
 
 	if (strcmp(argv[2], "memory") == 0) {
 		if (argc < 4) {
@@ -2439,7 +3150,7 @@ static int handle_agent_command(int argc, char **argv)
 		return 2;
 	}
 
-	fprintf(stderr, "Usage: edgepulse-ctl agent <status|diagnose|ask|memory|models|audit|policy> [message]\n");
+	fprintf(stderr, "Usage: edgepulse-ctl agent <status|diagnose|ask|chat|action|mcp|memory|models|audit|policy> [message]\n");
 	return 2;
 #endif
 }

@@ -2,6 +2,11 @@
 
 Review 日期：2026-05-07
 
+文件狀態：baseline design 與 metric catalog。Telemetry MVP 已實作並驗證；
+目前專案狀態與後續工作請參考
+[專案狀態與 Roadmap](project-status-and-roadmap.zh-TW.md) 與
+[執行計畫](execution-plan.zh-TW.md)。
+
 ## Hardware Baseline
 
 Initial target: OpenWrt One。

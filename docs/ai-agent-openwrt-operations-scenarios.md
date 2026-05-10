@@ -4,6 +4,15 @@ Review date: 2026-05-10
 
 This document defines common user conversation scenarios for the EdgePulse AI Agent when it is used as an OpenWrt operations assistant. The agent should translate user intent into policy-gated OpenWrt actions, execute only approved tools, and report what it did with evidence.
 
+## Current Status
+
+The first CLI implementation exists and has been package-tested on OpenWrt One.
+Read-only `status`, `wifi-status`, and `logs-recent` are implemented. Confirmed
+`reconnect-wan` and `wifi-set` exist behind the `operator_confirmed` policy and
+explicit `--confirm` path. The LuCI AI Agent page can run diagnostic/chat
+requests today; dedicated operation buttons and confirmation UX remain future
+work.
+
 ## Operating Model
 
 The agent has two action levels:
@@ -148,6 +157,19 @@ edgepulse-ctl agent action logs-recent
 - [ ] Add richer post-action verification for WAN IP, DNS reachability, associated Wi-Fi clients, and radio up/down state.
 - [ ] Add integration tests with fixture `ubus`, `uci`, `ifup`, `ifdown`, `wifi`, and `logread` binaries.
 - [ ] Add per-action permission switches so deployments can allow WAN reconnect without allowing Wi-Fi mutation.
+
+## Future Expansion
+
+- Add a LuCI operation panel with button-driven status, Wi-Fi status, logs,
+  reconnect WAN, and Wi-Fi setup flows.
+- Use the shared chat transcript to show what action was selected, which tools
+  ran, and what verification followed.
+- Add per-action UCI switches so deployments can separately allow WAN
+  reconnect, Wi-Fi reload, Wi-Fi mutation, and log inspection.
+- Add an intent layer that is deterministic for common Chinese/English router
+  requests and only falls back to a model when the intent is ambiguous.
+- Add richer verification after mutation, including WAN address changes, DNS
+  probes, gateway reachability, radio state, and associated clients.
 
 ## Safety Rules
 

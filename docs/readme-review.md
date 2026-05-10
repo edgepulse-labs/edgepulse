@@ -2,6 +2,11 @@
 
 Review date: 2026-05-07
 
+Document status: historical review. The root README has since been updated to
+reflect the OpenWrt One MVP, AI Agent, LuCI, and local C MCP progress. Use
+[Project status and roadmap](project-status-and-roadmap.md) for the current
+state.
+
 ## Summary
 
 The current `README.md` is strong as a project vision document. It clearly positions EdgePulse as an edge telemetry and AI feature platform for OpenWrt, CPE, Raspberry Pi, Linux gateways, and desktop systems.
@@ -40,4 +45,3 @@ Keep the README as the high-level product and research narrative. Avoid overload
 ## Immediate Documentation Action
 
 Create a `docs/` directory and use it as the source of truth for implementation planning. The first detailed document should focus on the smallest C-based OpenWrt One package that can collect local telemetry into SQLite under `/tmp`, derive periodic feature windows, and expose current data through LuCI.
-

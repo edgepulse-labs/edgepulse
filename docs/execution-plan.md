@@ -1,6 +1,6 @@
 # Execution Plan
 
-Review date: 2026-05-09
+Review date: 2026-05-10
 
 ## Current Status
 
@@ -17,8 +17,16 @@ The project has completed the first MVP path on OpenWrt One:
 - [x] Stored feature windows with mean, min, max, standard deviation, delta, rate, and coefficient of variation.
 - [x] CSV export for training rows backed by stored feature rows.
 - [x] LuCI overview, metrics, features, and settings pages packaged and installed.
+- [x] Optional AI Agent runtime with UCI/LuCI configuration, local diagnostics,
+  shared CLI/LuCI chat, policy-gated OpenWrt actions, and a first local C MCP
+  adapter.
+- [x] OpenWrt One validation of related APK installation, LuCI Diagnostic
+  report rendering, shared chat history, and MCP stdio `tools/list`/`tools/call`.
 
-The next implementation focus is to add remote training-data upload, canonical feature normalization, longer-running reliability validation, collector toggle enforcement, and an optional AI agent runtime that can be enabled, configured, and operated from OpenWrt/LuCI.
+The next implementation focus is to harden the current agent/MCP surface,
+add LuCI operation controls, add fixture integration tests, implement remote
+training-data upload, define canonical feature normalization, and run
+longer-lived reliability validation.
 
 ## Goal
 
@@ -452,7 +460,7 @@ Reference:
 
 ## Phase 8C: Shared Chat And MCP Bridge
 
-Status: shared CLI conversation storage added; LuCI and MCP bridge integration planned
+Status: shared CLI/LuCI conversation storage and local C MCP stdio validated on OpenWrt One
 
 Make AI Agent conversations visible across CLI, LuCI, and external AI tools. The EdgePulse agent remains the router-local source of truth for policy, execution, audit, and transcript storage.
 
@@ -462,7 +470,7 @@ Architecture decisions:
 - `/tmp/edgepulse/edgepulse.db` stores shared conversations and messages.
 - CLI, LuCI, and MCP bridge all read/write the same conversation IDs.
 - The daemon should grow a local `ubus` API for agent chat and operations.
-- `openwrt-mcp-server` should remain a separate bridge process that calls EdgePulse local APIs.
+- `openwrt-mcp-server` is excluded from the current implementation pass. If it returns later, it should remain a separate bridge process that calls EdgePulse local APIs.
 
 Chat and MCP todo:
 
@@ -471,13 +479,16 @@ Chat and MCP todo:
 - [x] Add `edgepulse-ctl agent chat ask <conversation_id> <message>`.
 - [x] Add `edgepulse-ctl agent chat list [conversation_id]`.
 - [x] Document CLI/LuCI shared chat and MCP bridge architecture.
-- [ ] Add LuCI wrapper commands for `agent-chat-list` and `agent-chat-ask`.
-- [ ] Convert the LuCI AI Agent page from a single diagnostic output into a transcript view.
-- [ ] Add UCI defaults for `chat_enabled`, `default_conversation_id`, and `mcp_enabled`.
+- [x] Add LuCI wrapper commands for `agent-chat-list` and `agent-chat-ask`.
+- [x] Convert the LuCI AI Agent diagnostic output into a human-readable diagnostic report and refresh shared transcript state.
+- [x] Add UCI defaults for `chat_enabled`, `default_conversation_id`, and `mcp_enabled`.
+- [x] Validate that CLI, LuCI helper, and MCP can see the same conversation transcript after mixed-origin reads on OpenWrt One.
+- [x] Preserve JSON-RPC request IDs in the local C MCP stdio server.
 - [ ] Add a local `edgepulse.agent` ubus object for `status`, `chat.ask`, `chat.list`, `action.run`, `policy.show`, and `audit.list`.
-- [ ] Update `openwrt-mcp-server` to map JSON-RPC methods to EdgePulse local CLI/ubus calls.
-- [ ] Package or document `openwrt-mcp-server` as an optional companion service instead of merging it into the C daemon.
-- [ ] Validate that CLI, LuCI, and MCP see the same conversation transcript after mixed-origin messages.
+- [ ] Add LuCI conversation selection and action shortcuts.
+- [ ] Add automated end-to-end tests for CLI, LuCI helper, and MCP shared transcript behavior.
+- [ ] If `openwrt-mcp-server` returns to scope, map JSON-RPC methods to EdgePulse local CLI/ubus calls.
+- [ ] Package or document any Rust bridge as an optional companion service instead of merging it into the C daemon.
 
 Reference:
 
@@ -485,7 +496,7 @@ Reference:
 
 ## Phase 8D: Local C MCP Adapter
 
-Status: first local CLI adapter implemented
+Status: first local CLI and stdio JSON-RPC adapter implemented and validated on OpenWrt One
 
 Add a local C MCP adapter for AI tools that run on or near the OpenWrt device. This is not a remote network service in the first phase. It exposes a narrow method surface through the existing C runtime and policy layer.
 
@@ -515,6 +526,7 @@ Follow-up todo:
 
 - [x] Add JSON-RPC 2.0 request/response envelope support for local stdio requests.
 - [x] Add `initialize`, `tools/list`, and `tools/call` handling for the local stdio adapter.
+- [x] Preserve numeric, string, and null JSON-RPC request IDs in responses.
 - [ ] Add a long-running local server mode through `ubus` or a Unix domain socket.
 - [ ] Add UCI method-level ACLs for MCP methods.
 - [ ] Add LuCI settings controls for local MCP enablement and method exposure review.

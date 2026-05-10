@@ -13,6 +13,9 @@ Review 日期：2026-05-10
 
 Local C adapter 應負責 router-local policy、allowlists、UCI/ubus access、audit logs 與 conversation storage。Rust bridge 應負責 HTTP、MQTT、TLS、tokens、sessions 與 fleet integration 等 remote transports。
 
+目前專案狀態：local C adapter 已實作，並已透過 `edgepulse-ctl agent mcp serve`
+在 OpenWrt One 驗證。Rust bridge 不在目前實作 scope 內。
+
 ## 為什麼先從 C 開始
 
 C runtime 已經和 EdgePulse package 整合，而且已有：
@@ -138,8 +141,19 @@ C 較適合：
 - [x] 加入 read-only ubus 與 limited UCI read 的 local C MCP method calls。
 - [x] 將 action execution 導到既有 policy-gated named actions。
 - [x] 加入 local stdio JSON-RPC mode，支援 `initialize`、`tools/list` 與 `tools/call`。
+- [x] 保留 numeric、string 與 null JSON-RPC request IDs。
+- [x] 在 OpenWrt One 驗證 `tools/list` 與 `tools/call edgepulse.agent.chat.list`。
 - [ ] 加入 long-running local daemon mode，透過 Unix domain socket 或 ubus。
 - [ ] 加入 method-level ACL settings in UCI。
 - [ ] 在 LuCI 加入 local MCP enable 與 exposed methods review controls。
 - [ ] 讓 Rust `openwrt-mcp-server` 呼叫 local C MCP adapter，而不是重複 OpenWrt command logic。
 - [ ] 驗證 Rust remote calls 與 local CLI calls 產生相同 audit records。
+
+## 長期發展方向
+
+- C adapter 保持小型、local、policy-authoritative。
+- Method names 與 JSON shapes 穩定後，再提供給 remote bridges。
+- 擴大 method surface 前，先加入 method-level ACLs 與 LuCI review controls。
+- CLI execution 不足以支援長時間 client 時，再使用 `ubus` 或 Unix domain socket。
+- 只有在需要 remote transport、fleet identity、TLS/session handling 或更完整 MCP
+  compatibility 時，再重新評估 Rust bridge。

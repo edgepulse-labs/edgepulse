@@ -4,6 +4,7 @@ This directory keeps implementation-oriented project documents.
 
 ## Documents
 
+- [Project status and roadmap](project-status-and-roadmap.md) / [繁體中文](project-status-and-roadmap.zh-TW.md): current implementation status, validated OpenWrt One behavior, and future roadmap.
 - [README review](readme-review.md) / [繁體中文](readme-review.zh-TW.md): current README assessment and documentation gaps.
 - [Execution plan](execution-plan.md) / [繁體中文](execution-plan.zh-TW.md): staged plan for the first OpenWrt One implementation.
 - [OpenWrt feeds and repos](openwrt-feeds-and-repos.md) / [繁體中文](openwrt-feeds-and-repos.zh-TW.md): repository split, custom feed, and OpenWrt integration workflow.
@@ -21,6 +22,7 @@ This directory keeps implementation-oriented project documents.
 
 ## Documentation Rules
 
+- Treat [Project status and roadmap](project-status-and-roadmap.md) as the current state index when older planning documents lag behind implementation.
 - Keep architecture intent in the root `README.md`.
 - Keep implementation details, schemas, metric catalogs, package layout, and LuCI plans in `docs/`.
 - Prefer small documents that can become development tickets.

@@ -1,5 +1,11 @@
 # OpenWrt AI Agent Project Requirements Plan
 
+Document status: requirements baseline. The first AI Agent MVP is now
+implemented in the C runtime with UCI/LuCI configuration, shared chat,
+policy-gated actions, and a local C MCP adapter. Use
+[Project status and roadmap](project-status-and-roadmap.md) and
+[Execution plan](execution-plan.md) for current progress and next steps.
+
 ## 1. Project Overview
 
 This project aims to build a lightweight, extensible AI Agent runtime for OpenWrt-based devices. The agent can execute multiple shell commands, interact with OpenWrt `ubus`, maintain request context, communicate with multiple AI model API servers, and build local memory on the device.

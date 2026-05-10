@@ -18,6 +18,9 @@ Ownership split:
 - `edgepulse-openwrt-feed` owns the OpenWrt `edgepulse` package recipe, LuCI
   package recipe, default UCI config, init scripts, uci-defaults, and LuCI
   application files.
+- Current package capabilities include telemetry, feature export, LuCI pages,
+  AI Agent settings/diagnostics, shared chat helper commands, policy-gated
+  OpenWrt actions, and the local C MCP adapter.
 
 Use it from an OpenWrt buildroot with a local feed line:
 
@@ -54,3 +57,15 @@ CONFIG_EDGEPULSE_AI_DEFAULT_MODEL=""
 ```
 
 Runtime use is still controlled by `/etc/config/edgepulse`; the default package config keeps `config agent 'agent'` disabled. Set `agent.enabled=1` and configure a `config model` section before enabling remote model routing. Keep real API keys out of firmware images and prefer runtime UCI or `api_key_env`.
+
+The current local MCP surface is enabled at runtime with
+`edgepulse.agent.mcp_enabled=1` and exposed through:
+
+```sh
+edgepulse-ctl agent mcp methods
+edgepulse-ctl agent mcp call <method> [args]
+edgepulse-ctl agent mcp serve
+```
+
+See [`docs/project-status-and-roadmap.md`](../../docs/project-status-and-roadmap.md)
+for the current implementation status and planned next steps.

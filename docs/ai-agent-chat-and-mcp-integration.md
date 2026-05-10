@@ -2,15 +2,27 @@
 
 Review date: 2026-05-10
 
-This document defines how EdgePulse should support shared AI Agent conversations across CLI, LuCI, and external AI tools, and how it should integrate with `openwrt-mcp-server`.
+This document defines how EdgePulse supports shared AI Agent conversations across CLI and LuCI, and how the current local C MCP adapter should relate to future external bridge tools.
 
 ## Short Answer
 
 - UCI should configure chat mode, model backends, memory, and policy, but UCI itself should not be the chat interface.
 - CLI and LuCI should both talk to the same EdgePulse agent runtime and the same SQLite conversation tables.
 - The current daemon should become the local authority for OpenWrt operations, policy checks, audit logs, and conversation persistence.
-- `../openwrt-mcp-server` should be integrated as a separate bridge process that exposes EdgePulse agent capabilities to external AI/MCP clients through HTTP/MQTT/JSON-RPC.
-- Do not merge the Rust MCP server directly into the C daemon. Keep the boundary explicit: EdgePulse owns router-local policy and state; MCP server owns external transport.
+- The current first MCP surface is the local C adapter in `edgepulse-ctl agent mcp`; it supports method listing, direct method calls, and local stdio JSON-RPC.
+- `openwrt-mcp-server` is out of scope for the current implementation pass. If reintroduced later, it should be a separate bridge process that calls EdgePulse local methods instead of duplicating router command logic.
+- Do not merge a remote Rust MCP server directly into the C daemon. Keep the boundary explicit: EdgePulse owns router-local policy and state; a bridge owns remote transport.
+
+## Current Status
+
+Implemented:
+
+- CLI shared chat: `edgepulse-ctl agent chat ask <conversation_id> <message>` and `edgepulse-ctl agent chat list [conversation_id]`.
+- LuCI helper shared chat: `/usr/libexec/edgepulse-luci agent-chat-ask` and `agent-chat-list`.
+- LuCI AI Agent page loads shared transcript state and renders Diagnostic output as a human-readable report.
+- UCI defaults include `chat_enabled`, `default_conversation_id`, and `mcp_enabled`.
+- Local C MCP adapter exposes chat, status, action, audit, read-only `ubus`, and limited EdgePulse UCI methods.
+- OpenWrt One validation confirmed CLI, LuCI helper, and MCP stdio can read the same conversation history.
 
 ## Shared Conversation Model
 
@@ -27,20 +39,23 @@ The same records are visible from:
 
 - CLI: `edgepulse-ctl agent chat list`, `edgepulse-ctl agent chat list <conversation_id>`, `edgepulse-ctl agent chat ask <conversation_id> "<message>"`
 - LuCI: `/usr/libexec/edgepulse-luci agent-chat-list [conversation_id]` and `/usr/libexec/edgepulse-luci agent-chat-ask <conversation_id> <message>`
-- MCP bridge: JSON-RPC methods that call the EdgePulse CLI/IPC and return the same conversation IDs and messages.
+- Local C MCP: JSON-RPC methods that call the EdgePulse local agent path and return the same conversation IDs and messages.
 
 ## LuCI Chat Interface
 
-`luci-app-edgepulse` should expose a real conversation UI, not only a single diagnostic textarea.
+`luci-app-edgepulse` now exposes the same backend conversation path as CLI. The Diagnostic view produces a structured, human-readable report and refreshes shared conversation state.
 
-Required behavior:
+Current and required behavior:
 
-- Show recent conversations.
-- Open a conversation and show user/assistant turns.
-- Send a new message into the selected conversation.
+- Show the active conversation transcript.
+- Send a new message into the selected conversation through `agent-chat-ask`.
+- Refresh the transcript after every request so CLI-originated messages are visible in LuCI.
+
+Future UI work:
+
+- Show recent conversations and allow switching between them.
 - Offer operation shortcuts such as router status, Wi-Fi status, recent logs, reconnect WAN, and Wi-Fi setup.
 - For confirmed operations, show a confirmation step before calling the confirmed action path.
-- Refresh the transcript after every request so CLI-originated messages are visible in LuCI.
 
 The UI should use the same backend path as CLI so there is no split brain.
 
@@ -93,14 +108,25 @@ Transport options:
 
 ## MCP Integration
 
-`openwrt-mcp-server` should integrate as a bridge:
+The current MCP implementation is local and C-based:
+
+```sh
+edgepulse-ctl agent mcp methods
+edgepulse-ctl agent mcp call <method> [args]
+edgepulse-ctl agent mcp serve
+```
+
+`edgepulse-ctl agent mcp serve` accepts local stdio JSON-RPC requests for
+`initialize`, `tools/list`, and `tools/call`.
+
+A future `openwrt-mcp-server` should integrate as a bridge:
 
 ```text
 External AI / MCP client
         |
         | HTTP / MQTT / JSON-RPC
         v
-openwrt-mcp-server
+openwrt-mcp-server or another external bridge
         |
         | local CLI, ubus, or Unix socket
         v
@@ -116,7 +142,7 @@ This keeps security and ownership clear:
 - EdgePulse decides whether an action is allowed.
 - EdgePulse writes the audit log.
 - EdgePulse owns conversation persistence.
-- MCP server authenticates remote clients and translates JSON-RPC/MCP-style tool calls into EdgePulse local calls.
+- The bridge authenticates remote clients and translates JSON-RPC/MCP-style tool calls into EdgePulse local calls.
 
 ## Proposed MCP Methods
 
@@ -130,6 +156,9 @@ The bridge should expose a small, stable method set:
 | `edgepulse.agent.chat.ask`   | `edgepulse-ctl agent chat ask <conversation_id> <message>` |
 | `edgepulse.agent.action.run` | `edgepulse-ctl agent action <action> [--confirm]`          |
 | `edgepulse.agent.audit.list` | `edgepulse-ctl agent audit list`                           |
+| `edgepulse.ubus.status.network` | read-only `ubus call network.interface dump`            |
+| `edgepulse.ubus.status.wireless` | read-only `ubus call network.wireless status`          |
+| `edgepulse.uci.get.edgepulse` | read-only `uci show edgepulse`                            |
 
 For state-changing methods, the MCP bridge must pass explicit confirmation and the EdgePulse policy engine must still enforce `operator_confirmed`.
 
@@ -137,14 +166,17 @@ For state-changing methods, the MCP bridge must pass explicit confirmation and t
 
 - [x] Add shared conversation tables to the EdgePulse SQLite schema.
 - [x] Add CLI chat commands backed by the shared conversation store.
-- [ ] Add LuCI wrapper commands for chat list and chat ask.
-- [ ] Replace the single-output LuCI diagnostic area with a transcript view.
-- [ ] Add LuCI refresh of shared transcript after every message.
-- [ ] Add UCI defaults for `chat_enabled`, `default_conversation_id`, and `mcp_enabled`.
+- [x] Add LuCI wrapper commands for chat list and chat ask.
+- [x] Replace the single-output LuCI diagnostic area with a readable diagnostic report and shared transcript refresh.
+- [x] Add LuCI refresh of shared transcript after every message.
+- [x] Add UCI defaults for `chat_enabled`, `default_conversation_id`, and `mcp_enabled`.
+- [x] Add a local C MCP stdio adapter with `initialize`, `tools/list`, and `tools/call`.
+- [x] Validate that CLI, LuCI helper, and MCP can see the same conversation history on OpenWrt One.
 - [ ] Add an EdgePulse `ubus` object for local agent calls.
-- [ ] Update `openwrt-mcp-server` command executor to call EdgePulse local APIs instead of placeholder command execution.
-- [ ] Package `openwrt-mcp-server` as an optional OpenWrt feed package or document it as an external companion service.
-- [ ] Add end-to-end tests proving CLI, LuCI, and MCP can see the same conversation history.
+- [ ] Add LuCI conversation selection and operation shortcuts.
+- [ ] Add end-to-end tests for mixed-origin CLI, LuCI, and MCP conversation writes.
+- [ ] If `openwrt-mcp-server` returns to scope, update its executor to call EdgePulse local APIs instead of placeholder command execution.
+- [ ] Package or document any Rust bridge as an optional companion service, not as the policy authority.
 
 ## Recommendation
 
@@ -152,6 +184,7 @@ Use a layered design:
 
 1. EdgePulse C agent runtime is the local source of truth.
 2. LuCI is one local UI over the same agent API and SQLite transcript.
-3. `openwrt-mcp-server` is a companion bridge for external AI tools, not the owner of OpenWrt policy.
+3. The local C MCP adapter is the first MCP surface.
+4. A future Rust bridge is a companion transport for external AI tools, not the owner of OpenWrt policy.
 
 This avoids duplicating safety logic and keeps future AI integrations from bypassing router-local policy and audit controls.

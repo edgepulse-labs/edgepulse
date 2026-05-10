@@ -4,6 +4,7 @@
 
 ## 文件
 
+- [專案狀態與 Roadmap](project-status-and-roadmap.zh-TW.md)：目前實作狀態、OpenWrt One 驗證結果與後續 roadmap。
 - [README 檢視](readme-review.zh-TW.md)：目前 README 的評估與文件缺口。
 - [執行計畫](execution-plan.zh-TW.md)：第一版 OpenWrt One 實作的分階段計畫。
 - [OpenWrt feeds 與 repos](openwrt-feeds-and-repos.zh-TW.md)：repository 拆分、自訂 feed 與 OpenWrt 整合流程。
@@ -21,6 +22,7 @@
 
 ## 文件規則
 
+- 當較早的規劃文件與目前實作不一致時，以 [專案狀態與 Roadmap](project-status-and-roadmap.zh-TW.md) 作為目前狀態索引。
 - 專案架構意圖保留在根目錄 `README.md`。
 - 實作細節、schema、metric catalog、package layout 與 LuCI plan 放在 `docs/`。
 - 優先維持小型文件，讓文件可以轉成開發 ticket。

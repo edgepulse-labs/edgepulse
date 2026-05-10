@@ -2,6 +2,11 @@
 
 Review date: 2026-05-07
 
+Document status: baseline design and metric catalog. The telemetry MVP has
+been implemented and validated; current project status and future work are
+tracked in [Project status and roadmap](project-status-and-roadmap.md) and
+[Execution plan](execution-plan.md).
+
 ## Hardware Baseline
 
 Initial target: OpenWrt One.

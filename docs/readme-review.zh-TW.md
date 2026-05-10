@@ -2,6 +2,10 @@
 
 Review 日期：2026-05-07
 
+文件狀態：歷史檢視。Root README 已更新為 OpenWrt One MVP、AI Agent、LuCI 與
+local C MCP 的目前進度。最新狀態請以
+[專案狀態與 Roadmap](project-status-and-roadmap.zh-TW.md) 為準。
+
 ## 摘要
 
 目前的 `README.md` 作為專案願景文件很完整。它清楚把 EdgePulse 定位為適用於 OpenWrt、CPE、Raspberry Pi、Linux gateway 與桌面系統的 edge telemetry 與 AI feature 平台。

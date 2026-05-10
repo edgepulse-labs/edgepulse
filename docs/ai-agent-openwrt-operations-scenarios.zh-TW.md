@@ -4,6 +4,14 @@ Review 日期：2026-05-10
 
 這份文件定義 EdgePulse AI Agent 作為 OpenWrt operations assistant 時，常見的使用者對話情境。Agent 應把使用者意圖轉成受 policy 控制的 OpenWrt action，只執行被允許的工具，並用 evidence 回報它做了什麼。
 
+## 目前狀態
+
+第一版 CLI implementation 已存在，並已在 OpenWrt One package 測試。Read-only
+`status`、`wifi-status` 與 `logs-recent` 已實作。Confirmed `reconnect-wan`
+與 `wifi-set` 已存在，但必須通過 `operator_confirmed` policy 與明確
+`--confirm` path。LuCI AI Agent page 目前可執行 diagnostic/chat requests；
+專用 operation buttons 與 confirmation UX 仍是後續工作。
+
 ## 運作模型
 
 Agent 有兩種 action level：
@@ -148,6 +156,19 @@ edgepulse-ctl agent action logs-recent
 - [ ] 加強 post-action verification，包含 WAN IP、DNS reachability、associated Wi-Fi clients、radio up/down state。
 - [ ] 加入 fixture `ubus`、`uci`、`ifup`、`ifdown`、`wifi`、`logread` 的 integration tests。
 - [ ] 加入 per-action permission switches，讓 deployment 可以允許 WAN reconnect，但不允許 Wi-Fi mutation。
+
+## 未來擴充
+
+- 加入 LuCI operation panel，提供 status、Wi-Fi status、logs、reconnect WAN
+  與 Wi-Fi setup 的 button-driven flows。
+- 使用 shared chat transcript 顯示選到哪個 action、執行哪些 tools，以及後續
+  verification 結果。
+- 加入 per-action UCI switches，讓 deployment 可分別允許 WAN reconnect、
+  Wi-Fi reload、Wi-Fi mutation 與 log inspection。
+- 加入 intent layer，對常見中文/英文 router requests 使用 deterministic
+  mapping，只有在 intent 模糊時才 fallback 到 model。
+- Mutation 後加入更完整 verification，例如 WAN address changes、DNS probes、
+  gateway reachability、radio state 與 associated clients。
 
 ## Safety Rules
 

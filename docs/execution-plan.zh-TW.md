@@ -1,6 +1,6 @@
 # 執行計畫
 
-Review 日期：2026-05-09
+Review 日期：2026-05-10
 
 ## 目前狀態
 
@@ -17,8 +17,15 @@ Review 日期：2026-05-09
 - [x] Stored feature windows，包含 mean、min、max、standard deviation、delta、rate 與 coefficient of variation。
 - [x] 以 stored feature rows 為基礎的 training rows CSV export。
 - [x] LuCI overview、metrics、features 與 settings pages 已完成 package 與安裝驗證。
+- [x] Optional AI Agent runtime，包含 UCI/LuCI configuration、local diagnostics、
+  shared CLI/LuCI chat、policy-gated OpenWrt actions，以及第一版 local C MCP
+  adapter。
+- [x] 已在 OpenWrt One 驗證相關 APK 安裝、LuCI Diagnostic report rendering、
+  shared chat history，以及 MCP stdio `tools/list`/`tools/call`。
 
-下一段實作重點是加入遠端訓練資料上傳、canonical feature normalization、較長時間的可靠性驗證、讓 collector toggles 實際控制採樣行為，並加入一個可選的 AI agent runtime，讓它能從 OpenWrt/LuCI 啟用、設定與操作。
+下一段實作重點是強化目前 agent/MCP surface、加入 LuCI operation controls、
+加入 fixture integration tests、實作遠端訓練資料上傳、定義 canonical feature
+normalization，並進行較長時間的可靠性驗證。
 
 ## 目標
 
@@ -452,7 +459,7 @@ Reference:
 
 ## Phase 8C: Shared Chat And MCP Bridge
 
-狀態：已加入 shared CLI conversation storage；LuCI 與 MCP bridge integration 已規劃
+狀態：shared CLI/LuCI conversation storage 與 local C MCP stdio 已在 OpenWrt One 驗證
 
 讓 AI Agent conversations 可以被 CLI、LuCI 與外部 AI tools 共同看到。EdgePulse agent 仍是 router-local policy、execution、audit 與 transcript storage 的 source of truth。
 
@@ -462,7 +469,7 @@ Architecture decisions:
 - `/tmp/edgepulse/edgepulse.db` 儲存 shared conversations 與 messages。
 - CLI、LuCI 與 MCP bridge 都讀寫同一組 conversation IDs。
 - Daemon 應逐步提供本地 `ubus` API，支援 agent chat 與 operations。
-- `openwrt-mcp-server` 應維持為獨立 bridge process，並呼叫 EdgePulse local APIs。
+- `openwrt-mcp-server` 目前排除在本階段實作之外。未來若重新納入，應維持為獨立 bridge process，並呼叫 EdgePulse local APIs。
 
 Chat and MCP todo:
 
@@ -471,13 +478,16 @@ Chat and MCP todo:
 - [x] 加入 `edgepulse-ctl agent chat ask <conversation_id> <message>`。
 - [x] 加入 `edgepulse-ctl agent chat list [conversation_id]`。
 - [x] 文件化 CLI/LuCI shared chat 與 MCP bridge architecture。
-- [ ] 加入 LuCI wrapper commands：`agent-chat-list` 與 `agent-chat-ask`。
-- [ ] 將 LuCI AI Agent page 從 single diagnostic output 改成 transcript view。
-- [ ] 加入 UCI defaults：`chat_enabled`、`default_conversation_id` 與 `mcp_enabled`。
+- [x] 加入 LuCI wrapper commands：`agent-chat-list` 與 `agent-chat-ask`。
+- [x] 將 LuCI AI Agent diagnostic output 改成可讀 diagnostic report，並 refresh shared transcript state。
+- [x] 加入 UCI defaults：`chat_enabled`、`default_conversation_id` 與 `mcp_enabled`。
+- [x] 在 OpenWrt One 驗證 CLI、LuCI helper 與 MCP 能看到同一份 conversation transcript。
+- [x] Local C MCP stdio server 會保留 JSON-RPC request IDs。
 - [ ] 加入 local `edgepulse.agent` ubus object，支援 `status`、`chat.ask`、`chat.list`、`action.run`、`policy.show` 與 `audit.list`。
-- [ ] 更新 `openwrt-mcp-server`，將 JSON-RPC methods map 到 EdgePulse local CLI/ubus calls。
-- [ ] 將 `openwrt-mcp-server` 包裝或文件化為 optional companion service，而不是合併進 C daemon。
-- [ ] 驗證 CLI、LuCI 與 MCP 混合送出 messages 後，都能看到同一份 conversation transcript。
+- [ ] 加入 LuCI conversation selection 與 action shortcuts。
+- [ ] 加入 CLI、LuCI helper 與 MCP shared transcript behavior 的 automated end-to-end tests。
+- [ ] 若 `openwrt-mcp-server` 重新納入 scope，將 JSON-RPC methods map 到 EdgePulse local CLI/ubus calls。
+- [ ] 將任何 Rust bridge 包裝或文件化為 optional companion service，而不是合併進 C daemon。
 
 Reference:
 
@@ -485,7 +495,7 @@ Reference:
 
 ## Phase 8D: Local C MCP Adapter
 
-狀態：已完成第一版 local CLI adapter
+狀態：已完成第一版 local CLI 與 stdio JSON-RPC adapter，並在 OpenWrt One 驗證
 
 加入給 OpenWrt device 本機或附近 AI tools 使用的 local C MCP adapter。第一階段不是 remote network service，而是透過既有 C runtime 與 policy layer expose 小範圍 method surface。
 
@@ -515,6 +525,7 @@ Follow-up todo:
 
 - [x] 為 local stdio requests 加入 JSON-RPC 2.0 request/response envelope support。
 - [x] 為 local stdio adapter 加入 `initialize`、`tools/list` 與 `tools/call` handling。
+- [x] Response 會保留 numeric、string 與 null JSON-RPC request IDs。
 - [ ] 透過 `ubus` 或 Unix domain socket 加入 long-running local server mode。
 - [ ] 加入 MCP methods 的 UCI method-level ACLs。
 - [ ] 在 LuCI settings 加入 local MCP enablement 與 method exposure review controls。

@@ -13,6 +13,10 @@ Build the first MCP surface in C as a local-only adapter, then let the Rust serv
 
 The local C adapter should own router-local policy, allowlists, UCI/ubus access, audit logs, and conversation storage. The Rust bridge should own remote transports such as HTTP, MQTT, TLS, tokens, sessions, and fleet integration.
 
+Current project status: the local C adapter is implemented and validated on
+OpenWrt One through `edgepulse-ctl agent mcp serve`. The Rust bridge is not in
+the current implementation scope.
+
 ## Why Start With C
 
 The C runtime is already packaged with EdgePulse and already has:
@@ -138,8 +142,22 @@ The key rule: remote tools must not bypass EdgePulse local policy. Even if Rust 
 - [x] Add local C MCP method calls for read-only ubus and limited UCI read.
 - [x] Route action execution through existing policy-gated named actions.
 - [x] Add local stdio JSON-RPC mode with `initialize`, `tools/list`, and `tools/call`.
+- [x] Preserve JSON-RPC request IDs for numeric, string, and null IDs.
+- [x] Validate `tools/list` and `tools/call edgepulse.agent.chat.list` on OpenWrt One.
 - [ ] Add a long-running local daemon mode over Unix domain socket or ubus.
 - [ ] Add method-level ACL settings in UCI.
 - [ ] Add LuCI controls for enabling local MCP and reviewing exposed methods.
 - [ ] Teach Rust `openwrt-mcp-server` to call the local C MCP adapter instead of duplicating OpenWrt command logic.
 - [ ] Validate that Rust remote calls and local CLI calls produce identical audit records.
+
+## Longer-Term Development Direction
+
+- Keep the C adapter small, local, and policy-authoritative.
+- Stabilize the method names and JSON shapes before exposing them to remote
+  bridges.
+- Add method-level ACLs and LuCI review controls before broadening the method
+  surface.
+- Use `ubus` or a Unix domain socket for local long-running clients once CLI
+  execution becomes too limiting.
+- Revisit Rust only when remote transport, fleet identity, TLS/session
+  handling, or richer MCP compatibility becomes necessary.

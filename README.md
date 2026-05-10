@@ -329,7 +329,23 @@ EdgePulse is designed to scale toward:
 
 # Status
 
-Early research and architecture phase.
+Active OpenWrt One MVP implementation.
+
+The project now includes a working C telemetry daemon, `edgepulse-ctl`, SQLite
+runtime storage, time-window feature extraction, OpenWrt feed packaging, LuCI
+pages, and an optional policy-gated AI Agent. The current AI Agent surface
+supports CLI and LuCI diagnostics, shared conversation history, policy-gated
+OpenWrt actions, and a first local C MCP adapter for tools running on or near
+the device.
+
+Current package work lives in:
+
+```text
+https://github.com/edgepulse-labs/edgepulse-openwrt-feed
+```
+
+For the latest implementation status and roadmap, see
+[`docs/project-status-and-roadmap.md`](docs/project-status-and-roadmap.md).
 
 ---
 
@@ -337,6 +353,8 @@ Early research and architecture phase.
 
 Implementation planning lives in [`docs/`](docs/):
 
+- [Project status and roadmap](docs/project-status-and-roadmap.md)
+- [Docs index](docs/README.md)
 - [README review](docs/readme-review.md)
 - [Execution plan](docs/execution-plan.md)
 - [OpenWrt One telemetry MVP](docs/openwrt-one-telemetry-mvp.md)

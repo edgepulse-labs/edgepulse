@@ -13,7 +13,7 @@ config edgepulse 'main'
 	option enable_conntrack '1'
 	option enable_nft '1'
 
-config agent 'main'
+config agent 'agent'
 	option enabled '0'
 	option local_only '1'
 	option memory_enabled '1'

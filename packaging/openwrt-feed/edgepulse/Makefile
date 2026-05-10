@@ -90,6 +90,8 @@ define Package/edgepulse/install
 	$(INSTALL_CONF) ./files/etc/config/edgepulse $(1)/etc/config/edgepulse
 	$(INSTALL_DIR) $(1)/etc/init.d
 	$(INSTALL_BIN) ./files/etc/init.d/edgepulse $(1)/etc/init.d/edgepulse
+	$(INSTALL_DIR) $(1)/etc/uci-defaults
+	$(INSTALL_BIN) ./files/etc/uci-defaults/90-edgepulse-agent $(1)/etc/uci-defaults/90-edgepulse-agent
 endef
 
 $(eval $(call BuildPackage,edgepulse))

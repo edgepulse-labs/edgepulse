@@ -133,7 +133,7 @@ CONFIG_EDGEPULSE_AI_DEFAULT_BASE_URL=""
 CONFIG_EDGEPULSE_AI_DEFAULT_MODEL=""
 ```
 
-AI agent runtime 預設仍是停用。使用 remote model routing 前，需在 `/etc/config/edgepulse` 啟用 `config agent 'main'` 並設定 `config model` section。不要把真正的 API keys 放進 firmware images；優先使用 runtime UCI 或 `api_key_env`。
+AI agent runtime 預設仍是停用。使用 remote model routing 前，需在 `/etc/config/edgepulse` 啟用 `config agent 'agent'` 並設定 `config model` section。不要把真正的 API keys 放進 firmware images；優先使用 runtime UCI 或 `api_key_env`。
 
 ## Package Split
 

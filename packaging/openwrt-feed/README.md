@@ -33,4 +33,4 @@ CONFIG_EDGEPULSE_AI_DEFAULT_BASE_URL=""
 CONFIG_EDGEPULSE_AI_DEFAULT_MODEL=""
 ```
 
-Runtime use is still controlled by `/etc/config/edgepulse`; the default package config keeps `config agent 'main'` disabled. Set `agent.enabled=1` and configure a `config model` section before enabling remote model routing. Keep real API keys out of firmware images and prefer runtime UCI or `api_key_env`.
+Runtime use is still controlled by `/etc/config/edgepulse`; the default package config keeps `config agent 'agent'` disabled. Set `agent.enabled=1` and configure a `config model` section before enabling remote model routing. Keep real API keys out of firmware images and prefer runtime UCI or `api_key_env`.

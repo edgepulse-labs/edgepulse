@@ -2,10 +2,13 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <netdb.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/socket.h>
+#include <sys/time.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <time.h>
@@ -62,6 +65,13 @@ struct agent_model_request {
 	char model[128];
 	char endpoint[AGENT_STR_SIZE + 64];
 	char status[64];
+};
+
+struct agent_model_response {
+	char status[64];
+	int attempts;
+	int http_status;
+	char text[1024];
 };
 
 static void json_escape(FILE *fp, const char *value)
@@ -283,7 +293,9 @@ static int read_agent_config(struct agent_config *agent,
 	fclose(fp);
 	model->configured = model->enabled && model->base_url[0] != '\0' &&
 		model->model[0] != '\0' &&
-		(model->api_key[0] != '\0' ||
+		(strncmp(model->base_url, "http://127.0.0.1", 16) == 0 ||
+		 strncmp(model->base_url, "http://localhost", 16) == 0 ||
+		 model->api_key[0] != '\0' ||
 		 (model->api_key_env[0] != '\0' && getenv(model->api_key_env)));
 	return 0;
 }
@@ -661,6 +673,238 @@ static void print_agent_model_request_json(const struct agent_model_request *req
 	printf("    \"api_key\": \"redacted\",\n");
 	printf("    \"status\": ");
 	print_json_string(request->status);
+	printf("\n");
+	printf("  }");
+}
+
+static int parse_local_http_url(const char *url, char *host, size_t host_size,
+				char *port, size_t port_size,
+				char *path, size_t path_size)
+{
+	const char *cursor;
+	const char *slash;
+	const char *colon;
+	size_t host_len;
+
+	if (!url || strncmp(url, "http://", 7) != 0)
+		return -1;
+
+	cursor = url + 7;
+	slash = strchr(cursor, '/');
+	if (!slash)
+		slash = cursor + strlen(cursor);
+
+	colon = memchr(cursor, ':', (size_t)(slash - cursor));
+	if (colon) {
+		host_len = (size_t)(colon - cursor);
+		snprintf(port, port_size, "%.*s", (int)(slash - colon - 1), colon + 1);
+	} else {
+		host_len = (size_t)(slash - cursor);
+		snprintf(port, port_size, "%s", "80");
+	}
+
+	if (host_len == 0 || host_len >= host_size || port[0] == '\0')
+		return -1;
+	snprintf(host, host_size, "%.*s", (int)host_len, cursor);
+
+	if (strcmp(host, "127.0.0.1") != 0 && strcmp(host, "localhost") != 0)
+		return -1;
+
+	if (*slash)
+		snprintf(path, path_size, "%s", slash);
+	else
+		snprintf(path, path_size, "%s", "/");
+
+	return 0;
+}
+
+static void build_model_payload(char *payload, size_t size, const char *model,
+				const char *question)
+{
+	char escaped_question[512];
+	char *out = escaped_question;
+	size_t remaining = sizeof(escaped_question);
+	const unsigned char *p = (const unsigned char *)(question ? question : "");
+
+	while (*p && remaining > 2) {
+		if (*p == '"' || *p == '\\') {
+			*out++ = '\\';
+			*out++ = (char)*p++;
+			remaining -= 2;
+		} else if (*p == '\n' || *p == '\r' || *p == '\t') {
+			*out++ = ' ';
+			p++;
+			remaining--;
+		} else if (*p < 32) {
+			p++;
+		} else {
+			*out++ = (char)*p++;
+			remaining--;
+		}
+	}
+	*out = '\0';
+
+	snprintf(payload, size,
+		 "{\"model\":\"%s\",\"messages\":[{\"role\":\"system\",\"content\":\"You are EdgePulse, a read-only OpenWrt diagnostic assistant. Use only the provided local tool evidence.\"},{\"role\":\"user\",\"content\":\"%s\"}],\"stream\":false}",
+		 model, escaped_question);
+}
+
+static const char *agent_model_api_key(const struct agent_model_config *model)
+{
+	const char *env_value;
+
+	if (model->api_key[0] != '\0')
+		return model->api_key;
+	if (model->api_key_env[0] == '\0')
+		return "";
+	env_value = getenv(model->api_key_env);
+	return env_value ? env_value : "";
+}
+
+static int agent_call_local_model(const struct agent_model_request *request,
+				  const struct agent_model_config *model,
+				  const char *question,
+				  struct agent_model_response *response)
+{
+	struct addrinfo hints;
+	struct addrinfo *result = NULL;
+	struct addrinfo *rp;
+	char host[64];
+	char port[16];
+	char path[192];
+	char payload[1024];
+	char header[1536];
+	char auth_header[384] = "";
+	char buffer[1024];
+	struct timeval timeout;
+	const char *api_key = agent_model_api_key(model);
+	int sock = -1;
+	ssize_t nread;
+	size_t used = 0;
+
+	if (parse_local_http_url(request->endpoint, host, sizeof(host), port,
+				 sizeof(port), path, sizeof(path)) != 0) {
+		snprintf(response->status, sizeof(response->status), "%s",
+			 "unsupported_transport");
+		return -1;
+	}
+
+	build_model_payload(payload, sizeof(payload), model->model, question);
+
+	memset(&hints, 0, sizeof(hints));
+	hints.ai_family = AF_UNSPEC;
+	hints.ai_socktype = SOCK_STREAM;
+	if (getaddrinfo(host, port, &hints, &result) != 0) {
+		snprintf(response->status, sizeof(response->status), "%s",
+			 "resolve_error");
+		return -1;
+	}
+
+	for (rp = result; rp; rp = rp->ai_next) {
+		sock = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
+		if (sock < 0)
+			continue;
+		timeout.tv_sec = model->timeout_sec > 0 ? model->timeout_sec : 30;
+		timeout.tv_usec = 0;
+		setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+		setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
+		if (connect(sock, rp->ai_addr, rp->ai_addrlen) == 0)
+			break;
+		close(sock);
+		sock = -1;
+	}
+	freeaddrinfo(result);
+
+	if (sock < 0) {
+		snprintf(response->status, sizeof(response->status), "%s",
+			 "connect_error");
+		return -1;
+	}
+
+	if (api_key[0] != '\0')
+		snprintf(auth_header, sizeof(auth_header),
+			 "Authorization: Bearer %s\r\n", api_key);
+
+	snprintf(header, sizeof(header),
+		 "POST %s HTTP/1.1\r\n"
+		 "Host: %s:%s\r\n"
+		 "Content-Type: application/json\r\n"
+		 "%s"
+		 "Content-Length: %zu\r\n"
+		 "Connection: close\r\n\r\n%s",
+		 path, host, port, auth_header, strlen(payload), payload);
+
+	if (write(sock, header, strlen(header)) < 0) {
+		close(sock);
+		snprintf(response->status, sizeof(response->status), "%s",
+			 "write_error");
+		return -1;
+	}
+
+	while ((nread = read(sock, buffer, sizeof(buffer))) > 0) {
+		size_t copy = (size_t)nread;
+		if (copy > sizeof(response->text) - used - 1)
+			copy = sizeof(response->text) - used - 1;
+		if (copy > 0) {
+			memcpy(response->text + used, buffer, copy);
+			used += copy;
+			response->text[used] = '\0';
+		}
+		if (used >= sizeof(response->text) - 1)
+			break;
+	}
+	close(sock);
+
+	if (strncmp(response->text, "HTTP/1.1 ", 9) == 0 ||
+	    strncmp(response->text, "HTTP/1.0 ", 9) == 0) {
+		char *body;
+
+		response->http_status = atoi(response->text + 9);
+		body = strstr(response->text, "\r\n\r\n");
+		if (body) {
+			body += 4;
+			memmove(response->text, body, strlen(body) + 1);
+		}
+	}
+
+	snprintf(response->status, sizeof(response->status), "%s",
+		 response->http_status >= 200 && response->http_status < 300 ?
+		 "ok" : "http_error");
+	return strcmp(response->status, "ok") == 0 ? 0 : -1;
+}
+
+static void agent_call_model_with_retries(const struct agent_model_request *request,
+					  const struct agent_model_config *model,
+					  const char *question,
+					  struct agent_model_response *response)
+{
+	int max_attempts = model->retry_count > 0 ? model->retry_count + 1 : 1;
+
+	memset(response, 0, sizeof(*response));
+	snprintf(response->status, sizeof(response->status), "%s", request->status);
+
+	if (strcmp(request->status, "ready") != 0)
+		return;
+
+	for (int i = 0; i < max_attempts; i++) {
+		response->attempts++;
+		if (agent_call_local_model(request, model, question, response) == 0)
+			return;
+		if (strcmp(response->status, "unsupported_transport") == 0)
+			return;
+	}
+}
+
+static void print_agent_model_response_json(const struct agent_model_response *response)
+{
+	printf("  \"model_response\": {\n");
+	printf("    \"status\": ");
+	print_json_string(response->status);
+	printf(",\n");
+	printf("    \"attempts\": %d,\n", response->attempts);
+	printf("    \"http_status\": %d,\n", response->http_status);
+	printf("    \"body_preview\": ");
+	print_json_string(response->text);
 	printf("\n");
 	printf("  }");
 }
@@ -1066,6 +1310,7 @@ static int EDGEPULSE_AGENT_UNUSED print_agent_diagnose(const char *question)
 	struct agent_tool_result ubus_info_result;
 	struct agent_tool_result ubus_network_result;
 	struct agent_model_request model_request;
+	struct agent_model_response model_response;
 	int have_uname = 0;
 	int have_uptime = 0;
 	int have_ubus_board = 0;
@@ -1096,9 +1341,14 @@ static int EDGEPULSE_AGENT_UNUSED print_agent_diagnose(const char *question)
 
 	memory_ratio = edgepulse_memory_used_ratio(&snapshot);
 	agent_build_model_request(&agent, &model, "analyzer", &model_request);
-	answer = strcmp(model_status, "configured") == 0 ?
-		"The remote model backend is configured, but this MVP keeps execution local and read-only. The local telemetry snapshot is included for grounded diagnostics." :
-		"The AI agent MVP ran a local read-only diagnostic. Configure and enable a model backend to add remote reasoning; local telemetry and policy findings are included in this response.";
+	agent_call_model_with_retries(&model_request, &model, question,
+				      &model_response);
+	if (strcmp(model_response.status, "ok") == 0)
+		answer = "The configured OpenAI-compatible model endpoint returned a response. The local read-only telemetry and tool evidence are included for grounding.";
+	else if (strcmp(model_status, "configured") == 0)
+		answer = "The model backend is configured, but the model call did not complete successfully. The local read-only telemetry and tool evidence are included for fallback diagnostics.";
+	else
+		answer = "The AI agent MVP ran a local read-only diagnostic. Configure and enable a model backend to add model reasoning; local telemetry and policy findings are included in this response.";
 
 	snprintf(memory_summary, sizeof(memory_summary),
 		 "Diagnostic request %s: load %.2f/%.2f/%.2f, memory %.2f%%, model_status=%s",
@@ -1151,6 +1401,8 @@ static int EDGEPULSE_AGENT_UNUSED print_agent_diagnose(const char *question)
 	}
 	agent_store_audit(agent.db_path, request_id, "model.route",
 			  model_request.status);
+	agent_store_audit(agent.db_path, request_id, "model.call",
+			  model_response.status);
 	agent_store_audit(agent.db_path, request_id, "policy.read_only",
 			  agent_config_has_warnings(&agent, &model) ?
 			  "Read-only policy active with configuration warnings." :
@@ -1200,6 +1452,8 @@ static int EDGEPULSE_AGENT_UNUSED print_agent_diagnose(const char *question)
 	printf("\n");
 	printf("  ],\n");
 	print_agent_model_request_json(&model_request);
+	printf(",\n");
+	print_agent_model_response_json(&model_response);
 	printf(",\n");
 	print_agent_findings(&snapshot, &agent);
 	printf("  \"snapshot\": {\n");

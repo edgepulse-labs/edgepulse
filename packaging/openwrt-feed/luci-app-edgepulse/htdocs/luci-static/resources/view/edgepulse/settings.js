@@ -38,7 +38,7 @@ return view.extend({
 		s.option(form.Flag, 'enable_conntrack', _('Conntrack collector'));
 		s.option(form.Flag, 'enable_nft', _('nftables collector'));
 
-		s = m.section(form.NamedSection, 'main', 'agent', _('AI Agent'));
+		s = m.section(form.NamedSection, 'agent', 'agent', _('AI Agent'));
 
 		o = s.option(form.Flag, 'enabled', _('Enabled'));
 		o.default = o.disabled;

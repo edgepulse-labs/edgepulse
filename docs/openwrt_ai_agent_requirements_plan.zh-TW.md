@@ -593,7 +593,7 @@ package/openwrt-ai-agent/
 ## 12. Configuration Example
 
 ```uci
-config agent 'main'
+config agent 'agent'
     option enabled '1'
     option mode 'diagnose'
     option local_only '0'

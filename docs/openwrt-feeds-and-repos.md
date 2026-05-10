@@ -133,7 +133,7 @@ CONFIG_EDGEPULSE_AI_DEFAULT_BASE_URL=""
 CONFIG_EDGEPULSE_AI_DEFAULT_MODEL=""
 ```
 
-The AI agent is still disabled at runtime by default. Enable `config agent 'main'` in `/etc/config/edgepulse` and configure a `config model` section before remote model routing is used. Keep real API keys out of firmware images; prefer runtime UCI or `api_key_env`.
+The AI agent is still disabled at runtime by default. Enable `config agent 'agent'` in `/etc/config/edgepulse` and configure a `config model` section before remote model routing is used. Keep real API keys out of firmware images; prefer runtime UCI or `api_key_env`.
 
 ## Package Split
 

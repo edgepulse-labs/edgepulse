@@ -288,7 +288,7 @@ Reference:
 
 ## Phase 8: Optional AI Agent Runtime
 
-Status: planned
+狀態：MVP 實作進行中
 
 為 EdgePulse 加入可選、受 policy 控制的 AI agent，讓 OpenWrt 裝置可以使用本地 telemetry、安全 shell commands、read-only `ubus` queries、local memory，以及一個或多個已設定的 model API servers 回答診斷問題。
 
@@ -317,7 +317,7 @@ UCI configuration todo:
 - [x] 加入 defaults，讓沒有 API key 或 local model endpoint 時，agent 能回報清楚的 "not configured" status。
 - [x] 在 status output、logs、CLI commands 與 LuCI 中支援 `api_key` redacted handling。
 - [x] 加入 UCI validation，檢查 URL format、model name presence、timeout ranges、memory toggle、shell toggle 與 read-only policy mode。
-- [ ] 加入 migration-safe defaults，確保安裝新 package 不會覆蓋既有 telemetry settings 或 secret fields。
+- [x] 加入 migration-safe defaults，確保安裝新 package 不會覆蓋既有 telemetry settings 或 secret fields。
 
 Agent runtime implementation todo:
 
@@ -327,7 +327,7 @@ Agent runtime implementation todo:
 - [x] 實作 request context tracking，包含 request ID、user message、selected model、tool call history、compacted observation summary 與 final answer。
 - [x] 實作 read-only shell executor，具備 allowlist、structured argument schemas、timeout、output size limits、exit code capture 與 audit logging。
 - [x] 實作 read-only `ubus` adapter，支援 `system`、`network.interface`、`network.device`、`network.wireless`、`service`、`iwinfo` 與 selected status methods。
-- [ ] 實作 OpenAI-compatible model client，支援 configurable base URL、model、API key source、timeout、retries 與 response/error normalization。
+- [x] 實作 OpenAI-compatible model client，支援 configurable base URL、model、API key source、timeout、retries 與 response/error normalization。
 - [x] 實作 model routing，支援 classifier、planner、analyzer、responder 與 fallback 等 roles。
 - [x] 加入 local SQLite memory tables，儲存 observations、user facts、diagnostic summaries、sensitivity level、TTL 與 source metadata。
 - [x] 加入 policy engine，預設封鎖 destructive shell commands、UCI mutation、package installation/removal、service restarts、firewall changes 與 file deletion。
@@ -350,7 +350,7 @@ Testing and validation todo:
 - [ ] 加入 model request construction、redaction、timeout handling、retry handling 與 fallback behavior 的 tests。
 - [ ] 加入 agent 與 model sections 的 UCI parsing tests。
 - [ ] 加入 shell 與 `ubus` tool output summarization 的 fixture tests。
-- [ ] 驗證 AI agent disabled 與 enabled 兩種 package builds。
+- [x] 驗證 AI agent disabled 與 enabled 兩種 package builds。
 - [ ] 驗證 OpenWrt One 安裝後 AI agent 預設停用。
 - [ ] 設定 UCI model parameters 後，驗證 configured remote model 可以回答 read-only diagnostic request。
 - [ ] 驗證 LuCI interaction 與 settings pages 在 desktop 與 mobile layouts 上可用。

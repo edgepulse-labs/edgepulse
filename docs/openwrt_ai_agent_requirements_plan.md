@@ -593,7 +593,7 @@ package/openwrt-ai-agent/
 ## 12. Configuration Example
 
 ```uci
-config agent 'main'
+config agent 'agent'
     option enabled '1'
     option mode 'diagnose'
     option local_only '0'
@@ -735,4 +735,3 @@ Expected behavior:
 The agent should not be designed as an unrestricted chatbot running on a router. It should be designed as a policy-controlled, tool-grounded, auditable OpenWrt operations assistant.
 
 The core value is not only natural language interaction. The core value is safe orchestration across OpenWrt system state, shell tools, `ubus`, local memory, and multiple AI model backends.
-

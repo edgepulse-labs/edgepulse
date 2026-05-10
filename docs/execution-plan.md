@@ -288,7 +288,7 @@ Reference:
 
 ## Phase 8: Optional AI Agent Runtime
 
-Status: planned
+Status: MVP implementation in progress
 
 Add an optional, policy-controlled AI agent to EdgePulse so an OpenWrt device can answer diagnostic questions using local telemetry, safe shell commands, read-only `ubus` queries, local memory, and one or more configured model API servers.
 
@@ -317,7 +317,7 @@ UCI configuration todo:
 - [x] Add defaults that let the agent report a clear "not configured" status when no API key or local model endpoint is available.
 - [x] Support redacted handling for `api_key` in status output, logs, CLI commands, and LuCI.
 - [x] Add UCI validation for URL format, model name presence, timeout ranges, memory toggle, shell toggle, and read-only policy mode.
-- [ ] Add migration-safe defaults so installing a new package does not overwrite existing telemetry settings or secret fields.
+- [x] Add migration-safe defaults so installing a new package does not overwrite existing telemetry settings or secret fields.
 
 Agent runtime implementation todo:
 
@@ -327,7 +327,7 @@ Agent runtime implementation todo:
 - [x] Implement request context tracking with request ID, user message, selected model, tool call history, compacted observation summary, and final answer.
 - [x] Implement a read-only shell executor with an allowlist, structured argument schemas, timeout, output size limits, exit code capture, and audit logging.
 - [x] Implement a read-only `ubus` adapter for `system`, `network.interface`, `network.device`, `network.wireless`, `service`, `iwinfo`, and selected status methods.
-- [ ] Implement an OpenAI-compatible model client with configurable base URL, model, API key source, timeout, retries, and response/error normalization.
+- [x] Implement an OpenAI-compatible model client with configurable base URL, model, API key source, timeout, retries, and response/error normalization.
 - [x] Implement model routing for roles such as classifier, planner, analyzer, responder, and fallback.
 - [x] Add local SQLite memory tables for observations, user facts, diagnostic summaries, sensitivity level, TTL, and source metadata.
 - [x] Add a policy engine that blocks destructive shell commands, UCI mutation, package installation/removal, service restarts, firewall changes, and file deletion by default.
@@ -350,7 +350,7 @@ Testing and validation todo:
 - [ ] Add tests for model request construction, redaction, timeout handling, retry handling, and fallback behavior.
 - [ ] Add tests for UCI parsing of agent and model sections.
 - [ ] Add fixture tests for shell and `ubus` tool output summarization.
-- [ ] Validate package builds with AI agent disabled and enabled.
+- [x] Validate package builds with AI agent disabled and enabled.
 - [ ] Validate installation on OpenWrt One with AI agent disabled by default.
 - [ ] Validate a configured remote model can answer a read-only diagnostic request after setting UCI model parameters.
 - [ ] Validate LuCI interaction and settings pages on desktop and mobile layouts.

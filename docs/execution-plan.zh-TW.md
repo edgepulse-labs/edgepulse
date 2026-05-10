@@ -493,6 +493,7 @@ Boundary:
 
 - 由 `edgepulse.agent.mcp_enabled` 控制。
 - 第一版先做 local-only CLI adapter：`edgepulse-ctl agent mcp methods` 與 `edgepulse-ctl agent mcp call <method>`。
+- Local stdio JSON-RPC mode：`edgepulse-ctl agent mcp serve`。
 - 不提供任意 `shell.exec`、`ubus.call` 或 `uci.set`。
 - `ubus` support 維持 read-only 且 method-specific。
 - `uci` support 只限讀取 EdgePulse config，以及透過既有 action layer 執行 confirmed named actions。
@@ -512,7 +513,8 @@ Boundary:
 
 Follow-up todo:
 
-- [ ] 加入 JSON-RPC 2.0 request/response envelope support。
+- [x] 為 local stdio requests 加入 JSON-RPC 2.0 request/response envelope support。
+- [x] 為 local stdio adapter 加入 `initialize`、`tools/list` 與 `tools/call` handling。
 - [ ] 透過 `ubus` 或 Unix domain socket 加入 long-running local server mode。
 - [ ] 加入 MCP methods 的 UCI method-level ACLs。
 - [ ] 在 LuCI settings 加入 local MCP enablement 與 method exposure review controls。

@@ -33,6 +33,7 @@ First phase is intentionally local and narrow:
 ```sh
 edgepulse-ctl agent mcp methods
 edgepulse-ctl agent mcp call <method> [args]
+edgepulse-ctl agent mcp serve
 ```
 
 It is controlled by:
@@ -136,8 +137,8 @@ The key rule: remote tools must not bypass EdgePulse local policy. Even if Rust 
 - [x] Add local C MCP method listing.
 - [x] Add local C MCP method calls for read-only ubus and limited UCI read.
 - [x] Route action execution through existing policy-gated named actions.
+- [x] Add local stdio JSON-RPC mode with `initialize`, `tools/list`, and `tools/call`.
 - [ ] Add a long-running local daemon mode over Unix domain socket or ubus.
-- [ ] Add JSON-RPC request/response envelope compatibility.
 - [ ] Add method-level ACL settings in UCI.
 - [ ] Add LuCI controls for enabling local MCP and reviewing exposed methods.
 - [ ] Teach Rust `openwrt-mcp-server` to call the local C MCP adapter instead of duplicating OpenWrt command logic.

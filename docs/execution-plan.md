@@ -493,6 +493,7 @@ Boundary:
 
 - Controlled by `edgepulse.agent.mcp_enabled`.
 - Local-only CLI adapter first: `edgepulse-ctl agent mcp methods` and `edgepulse-ctl agent mcp call <method>`.
+- Local stdio JSON-RPC mode: `edgepulse-ctl agent mcp serve`.
 - No arbitrary `shell.exec`, `ubus.call`, or `uci.set`.
 - `ubus` support is read-only and method-specific.
 - `uci` support is limited to reading EdgePulse config and running confirmed named actions through the existing action layer.
@@ -512,7 +513,8 @@ First-phase methods:
 
 Follow-up todo:
 
-- [ ] Add JSON-RPC 2.0 request/response envelope support.
+- [x] Add JSON-RPC 2.0 request/response envelope support for local stdio requests.
+- [x] Add `initialize`, `tools/list`, and `tools/call` handling for the local stdio adapter.
 - [ ] Add a long-running local server mode through `ubus` or a Unix domain socket.
 - [ ] Add UCI method-level ACLs for MCP methods.
 - [ ] Add LuCI settings controls for local MCP enablement and method exposure review.

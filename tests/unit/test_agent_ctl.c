@@ -357,6 +357,32 @@ static void test_agent_conversation_storage(void)
 	check_int("conversation message pair", count, 2);
 }
 
+static void test_agent_mcp_json_helpers(void)
+{
+	char value[128];
+	int boolean = 0;
+
+	check_int("extract json string",
+		  json_extract_string_field("{\"id\":\"1\",\"method\":\"tools/list\"}",
+					    "method", value, sizeof(value)),
+		  0);
+	check_string("json method", value, "tools/list");
+	check_int("extract escaped json string",
+		  json_extract_string_field("{\"message\":\"line one\\nline two\"}",
+					    "message", value, sizeof(value)),
+		  0);
+	check_string("json escaped", value, "line one\nline two");
+	check_int("missing json string",
+		  json_extract_string_field("{\"id\":\"1\"}", "method", value,
+					    sizeof(value)),
+		  -1);
+	check_int("extract json bool",
+		  json_extract_bool_field("{\"confirm\":true}", "confirm",
+					  &boolean),
+		  0);
+	check_int("json bool value", boolean, 1);
+}
+
 int main(void)
 {
 	test_agent_policy_allowlist();
@@ -365,6 +391,7 @@ int main(void)
 	test_agent_model_request_and_payload();
 	test_agent_validation_warnings();
 	test_agent_conversation_storage();
+	test_agent_mcp_json_helpers();
 
 	if (failures != 0) {
 		fprintf(stderr, "%d agent unit test(s) failed\n", failures);

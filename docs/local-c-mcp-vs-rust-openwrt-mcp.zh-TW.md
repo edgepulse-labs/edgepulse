@@ -33,6 +33,7 @@ C runtime 已經和 EdgePulse package 整合，而且已有：
 ```sh
 edgepulse-ctl agent mcp methods
 edgepulse-ctl agent mcp call <method> [args]
+edgepulse-ctl agent mcp serve
 ```
 
 由 UCI 控制：
@@ -136,8 +137,8 @@ C 較適合：
 - [x] 加入 local C MCP method listing。
 - [x] 加入 read-only ubus 與 limited UCI read 的 local C MCP method calls。
 - [x] 將 action execution 導到既有 policy-gated named actions。
+- [x] 加入 local stdio JSON-RPC mode，支援 `initialize`、`tools/list` 與 `tools/call`。
 - [ ] 加入 long-running local daemon mode，透過 Unix domain socket 或 ubus。
-- [ ] 加入 JSON-RPC request/response envelope compatibility。
 - [ ] 加入 method-level ACL settings in UCI。
 - [ ] 在 LuCI 加入 local MCP enable 與 exposed methods review controls。
 - [ ] 讓 Rust `openwrt-mcp-server` 呼叫 local C MCP adapter，而不是重複 OpenWrt command logic。

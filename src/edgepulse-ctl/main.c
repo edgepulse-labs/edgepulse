@@ -2940,6 +2940,21 @@ static int EDGEPULSE_AGENT_UNUSED print_agent_mcp_methods(void)
 	return 0;
 }
 
+static void print_agent_mcp_tools_array(void)
+{
+	printf("[");
+	printf("{\"name\":\"edgepulse.status\",\"description\":\"Read EdgePulse telemetry status\"},");
+	printf("{\"name\":\"edgepulse.agent.status\",\"description\":\"Read agent, model, and policy status\"},");
+	printf("{\"name\":\"edgepulse.agent.chat.list\",\"description\":\"Read shared conversation messages\"},");
+	printf("{\"name\":\"edgepulse.agent.chat.ask\",\"description\":\"Send a message to the EdgePulse AI Agent\"},");
+	printf("{\"name\":\"edgepulse.agent.action.run\",\"description\":\"Run a policy-gated named EdgePulse action\"},");
+	printf("{\"name\":\"edgepulse.agent.audit.list\",\"description\":\"Read recent EdgePulse agent audit events\"},");
+	printf("{\"name\":\"edgepulse.ubus.status.network\",\"description\":\"Read OpenWrt network interface status through allowed ubus method\"},");
+	printf("{\"name\":\"edgepulse.ubus.status.wireless\",\"description\":\"Read OpenWrt wireless status through allowed ubus method\"},");
+	printf("{\"name\":\"edgepulse.uci.get.edgepulse\",\"description\":\"Read EdgePulse UCI configuration\"}");
+	printf("]");
+}
+
 static int print_agent_mcp_tool_call(const char *method, const char *tool_name,
 				     char *const tool_argv[])
 {
@@ -3054,13 +3069,268 @@ static int EDGEPULSE_AGENT_UNUSED handle_agent_mcp_call(int argc, char **argv)
 	return 2;
 }
 
+static int json_extract_string_field(const char *json, const char *key,
+				     char *out, size_t out_size)
+{
+	char pattern[96];
+	const char *cursor;
+	size_t used = 0;
+
+	if (!json || !key || !out || out_size == 0)
+		return -1;
+	out[0] = '\0';
+	snprintf(pattern, sizeof(pattern), "\"%s\"", key);
+	cursor = strstr(json, pattern);
+	if (!cursor)
+		return -1;
+	cursor = strchr(cursor + strlen(pattern), ':');
+	if (!cursor)
+		return -1;
+	cursor++;
+	while (*cursor == ' ' || *cursor == '\t' || *cursor == '\n' || *cursor == '\r')
+		cursor++;
+	if (*cursor != '"')
+		return -1;
+	cursor++;
+	while (*cursor && *cursor != '"' && used + 1 < out_size) {
+		if (*cursor == '\\' && cursor[1]) {
+			cursor++;
+			switch (*cursor) {
+			case 'n':
+				out[used++] = '\n';
+				break;
+			case 'r':
+				out[used++] = '\r';
+				break;
+			case 't':
+				out[used++] = '\t';
+				break;
+			default:
+				out[used++] = *cursor;
+				break;
+			}
+			cursor++;
+			continue;
+		}
+		out[used++] = *cursor++;
+	}
+	out[used] = '\0';
+	return used > 0 ? 0 : -1;
+}
+
+static int json_extract_bool_field(const char *json, const char *key,
+				   int *value)
+{
+	char pattern[96];
+	const char *cursor;
+
+	if (!json || !key || !value)
+		return -1;
+	snprintf(pattern, sizeof(pattern), "\"%s\"", key);
+	cursor = strstr(json, pattern);
+	if (!cursor)
+		return -1;
+	cursor = strchr(cursor + strlen(pattern), ':');
+	if (!cursor)
+		return -1;
+	cursor++;
+	while (*cursor == ' ' || *cursor == '\t' || *cursor == '\n' || *cursor == '\r')
+		cursor++;
+	if (strncmp(cursor, "true", 4) == 0) {
+		*value = 1;
+		return 0;
+	}
+	if (strncmp(cursor, "false", 5) == 0) {
+		*value = 0;
+		return 0;
+	}
+	return -1;
+}
+
+static int agent_capture_mcp_call(int argc, char **argv, char *out, size_t out_size)
+{
+	char path[] = "/tmp/edgepulse-mcp-call.XXXXXX";
+	int fd;
+	int saved_stdout;
+	int rc;
+	ssize_t nread;
+
+	if (!out || out_size == 0)
+		return -1;
+	out[0] = '\0';
+
+	fd = mkstemp(path);
+	if (fd < 0)
+		return -1;
+	saved_stdout = dup(STDOUT_FILENO);
+	if (saved_stdout < 0) {
+		close(fd);
+		unlink(path);
+		return -1;
+	}
+
+	fflush(stdout);
+	dup2(fd, STDOUT_FILENO);
+	rc = handle_agent_mcp_call(argc, argv);
+	fflush(stdout);
+	dup2(saved_stdout, STDOUT_FILENO);
+	close(saved_stdout);
+
+	lseek(fd, 0, SEEK_SET);
+	nread = read(fd, out, out_size - 1);
+	if (nread > 0)
+		out[nread] = '\0';
+	close(fd);
+	unlink(path);
+	return rc;
+}
+
+static void print_mcp_jsonrpc_result(const char *id, const char *result_json)
+{
+	printf("{\"jsonrpc\":\"2.0\",\"id\":");
+	print_json_string(id && id[0] ? id : "edgepulse-mcp");
+	printf(",\"result\":%s}\n", result_json ? result_json : "{}");
+}
+
+static void print_mcp_jsonrpc_text_result(const char *id, const char *text)
+{
+	printf("{\"jsonrpc\":\"2.0\",\"id\":");
+	print_json_string(id && id[0] ? id : "edgepulse-mcp");
+	printf(",\"result\":{\"content\":[{\"type\":\"text\",\"text\":");
+	print_json_string(text ? text : "");
+	printf("}]}}\n");
+}
+
+static void print_mcp_jsonrpc_error(const char *id, int code, const char *message)
+{
+	printf("{\"jsonrpc\":\"2.0\",\"id\":");
+	print_json_string(id && id[0] ? id : "edgepulse-mcp");
+	printf(",\"error\":{\"code\":%d,\"message\":", code);
+	print_json_string(message ? message : "error");
+	printf("}}\n");
+}
+
+static void handle_agent_mcp_jsonrpc_line(const char *line)
+{
+	char id[128] = "";
+	char method[128] = "";
+	char name[128] = "";
+	char conversation_id[64] = "default";
+	char message[1024] = "";
+	char action[64] = "";
+	char ssid[128] = "";
+	char key[128] = "";
+	char encryption[64] = "";
+	char captured[16384];
+	char *call_argv[20];
+	int call_argc = 0;
+	int confirm = 0;
+
+	json_extract_string_field(line, "id", id, sizeof(id));
+	if (json_extract_string_field(line, "method", method, sizeof(method)) != 0) {
+		print_mcp_jsonrpc_error(id, -32600, "Missing JSON-RPC method");
+		return;
+	}
+
+	if (strcmp(method, "initialize") == 0) {
+		print_mcp_jsonrpc_result(id,
+			"{\"protocolVersion\":\"2024-11-05\",\"serverInfo\":{\"name\":\"edgepulse-c-mcp\",\"version\":\"0.1.0-dev\"},\"capabilities\":{\"tools\":{}}}");
+		return;
+	}
+
+	if (strcmp(method, "tools/list") == 0 ||
+	    strcmp(method, "edgepulse.mcp.methods") == 0) {
+		printf("{\"jsonrpc\":\"2.0\",\"id\":");
+		print_json_string(id[0] ? id : "edgepulse-mcp");
+		printf(",\"result\":{\"tools\":");
+		print_agent_mcp_tools_array();
+		printf("}}\n");
+		return;
+	}
+
+	if (strcmp(method, "tools/call") == 0) {
+		if (json_extract_string_field(line, "name", name, sizeof(name)) != 0) {
+			print_mcp_jsonrpc_error(id, -32602, "tools/call requires a name");
+			return;
+		}
+	} else {
+		snprintf(name, sizeof(name), "%s", method);
+	}
+
+	call_argv[call_argc++] = "edgepulse-ctl";
+	call_argv[call_argc++] = "agent";
+	call_argv[call_argc++] = "mcp";
+	call_argv[call_argc++] = "call";
+	call_argv[call_argc++] = name;
+
+	if (strcmp(name, "edgepulse.agent.chat.ask") == 0) {
+		json_extract_string_field(line, "conversation_id", conversation_id,
+					  sizeof(conversation_id));
+		if (json_extract_string_field(line, "message", message,
+					      sizeof(message)) != 0) {
+			print_mcp_jsonrpc_error(id, -32602,
+						"edgepulse.agent.chat.ask requires message");
+			return;
+		}
+		call_argv[call_argc++] = conversation_id;
+		call_argv[call_argc++] = message;
+	} else if (strcmp(name, "edgepulse.agent.chat.list") == 0) {
+		if (json_extract_string_field(line, "conversation_id", conversation_id,
+					      sizeof(conversation_id)) == 0)
+			call_argv[call_argc++] = conversation_id;
+	} else if (strcmp(name, "edgepulse.agent.action.run") == 0) {
+		if (json_extract_string_field(line, "action", action,
+					      sizeof(action)) != 0) {
+			print_mcp_jsonrpc_error(id, -32602,
+						"edgepulse.agent.action.run requires action");
+			return;
+		}
+		call_argv[call_argc++] = action;
+		if (json_extract_bool_field(line, "confirm", &confirm) == 0 && confirm)
+			call_argv[call_argc++] = "--confirm";
+		if (json_extract_string_field(line, "ssid", ssid, sizeof(ssid)) == 0) {
+			call_argv[call_argc++] = "--ssid";
+			call_argv[call_argc++] = ssid;
+		}
+		if (json_extract_string_field(line, "key", key, sizeof(key)) == 0) {
+			call_argv[call_argc++] = "--key";
+			call_argv[call_argc++] = key;
+		}
+		if (json_extract_string_field(line, "encryption", encryption,
+					      sizeof(encryption)) == 0) {
+			call_argv[call_argc++] = "--encryption";
+			call_argv[call_argc++] = encryption;
+		}
+	}
+	call_argv[call_argc] = NULL;
+
+	agent_capture_mcp_call(call_argc, call_argv, captured, sizeof(captured));
+	print_mcp_jsonrpc_text_result(id, captured);
+}
+
+static int EDGEPULSE_AGENT_UNUSED handle_agent_mcp_serve(void)
+{
+	char line[8192];
+
+	while (fgets(line, sizeof(line), stdin)) {
+		char *trimmed = trim_space(line);
+		if (trimmed[0] == '\0')
+			continue;
+		handle_agent_mcp_jsonrpc_line(trimmed);
+		fflush(stdout);
+	}
+	return 0;
+}
+
 static int EDGEPULSE_AGENT_UNUSED handle_agent_mcp_command(int argc, char **argv)
 {
 	if (argc >= 4 && strcmp(argv[3], "methods") == 0)
 		return print_agent_mcp_methods();
 	if (argc >= 4 && strcmp(argv[3], "call") == 0)
 		return handle_agent_mcp_call(argc, argv);
-	fprintf(stderr, "Usage: edgepulse-ctl agent mcp <methods|call> [method] [args]\n");
+	if (argc >= 4 && strcmp(argv[3], "serve") == 0)
+		return handle_agent_mcp_serve();
+	fprintf(stderr, "Usage: edgepulse-ctl agent mcp <methods|call|serve> [method] [args]\n");
 	return 2;
 }
 

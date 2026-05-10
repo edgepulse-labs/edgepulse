@@ -288,7 +288,7 @@ Reference:
 
 ## Phase 8: Optional AI Agent Runtime
 
-Status: MVP implementation in progress
+Status: MVP implementation validated on OpenWrt One
 
 Add an optional, policy-controlled AI agent to EdgePulse so an OpenWrt device can answer diagnostic questions using local telemetry, safe shell commands, read-only `ubus` queries, local memory, and one or more configured model API servers.
 
@@ -351,9 +351,9 @@ Testing and validation todo:
 - [x] Add tests for UCI parsing of agent and model sections.
 - [x] Add fixture tests for shell and `ubus` tool output summarization.
 - [x] Validate package builds with AI agent disabled and enabled.
-- [ ] Validate installation on OpenWrt One with AI agent disabled by default.
+- [x] Validate installation on OpenWrt One with AI agent disabled by default.
 - [x] Validate a configured remote model can answer a read-only diagnostic request after setting UCI model parameters.
-- [ ] Validate LuCI interaction and settings pages on desktop and mobile layouts.
+- [x] Validate LuCI interaction and settings pages on desktop and mobile layouts.
 
 Exit criteria:
 
@@ -381,7 +381,7 @@ The first MVP is complete when OpenWrt One can:
 
 The AI agent extension becomes implementation-ready when:
 
-- [ ] Build-time and runtime feature toggles are documented.
-- [ ] Default model and credential configuration paths are defined.
-- [ ] LuCI interaction and settings pages are planned as concrete tasks.
-- [ ] The first read-only diagnostic policy is implemented and tested.
+- [x] Build-time and runtime feature toggles are documented.
+- [x] Default model and credential configuration paths are defined.
+- [x] LuCI interaction and settings pages are planned as concrete tasks.
+- [x] The first read-only diagnostic policy is implemented and tested.

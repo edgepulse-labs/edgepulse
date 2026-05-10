@@ -288,7 +288,7 @@ Reference:
 
 ## Phase 8: Optional AI Agent Runtime
 
-狀態：MVP 實作進行中
+狀態：MVP 已在 OpenWrt One 上完成驗證
 
 為 EdgePulse 加入可選、受 policy 控制的 AI agent，讓 OpenWrt 裝置可以使用本地 telemetry、安全 shell commands、read-only `ubus` queries、local memory，以及一個或多個已設定的 model API servers 回答診斷問題。
 
@@ -351,9 +351,9 @@ Testing and validation todo:
 - [x] 加入 agent 與 model sections 的 UCI parsing tests。
 - [x] 加入 shell 與 `ubus` tool output summarization 的 fixture tests。
 - [x] 驗證 AI agent disabled 與 enabled 兩種 package builds。
-- [ ] 驗證 OpenWrt One 安裝後 AI agent 預設停用。
+- [x] 驗證 OpenWrt One 安裝後 AI agent 預設停用。
 - [x] 設定 UCI model parameters 後，驗證 configured remote model 可以回答 read-only diagnostic request。
-- [ ] 驗證 LuCI interaction 與 settings pages 在 desktop 與 mobile layouts 上可用。
+- [x] 驗證 LuCI interaction 與 settings pages 在 desktop 與 mobile layouts 上可用。
 
 Exit criteria:
 
@@ -381,7 +381,7 @@ Reference:
 
 AI agent extension 進入 implementation-ready 狀態時應完成：
 
-- [ ] Build-time 與 runtime feature toggles 已文件化。
-- [ ] Default model 與 credential configuration paths 已定義。
-- [ ] LuCI interaction 與 settings pages 已拆成具體任務。
-- [ ] 第一版 read-only diagnostic policy 已實作並測試。
+- [x] Build-time 與 runtime feature toggles 已文件化。
+- [x] Default model 與 credential configuration paths 已定義。
+- [x] LuCI interaction 與 settings pages 已拆成具體任務。
+- [x] 第一版 read-only diagnostic policy 已實作並測試。

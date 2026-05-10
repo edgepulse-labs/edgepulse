@@ -63,6 +63,10 @@ return view.extend({
 		o.datatype = 'uinteger';
 		o.default = '60';
 
+		o = s.option(form.Value, 'heartbeat_interval_sec', _('Heartbeat interval'));
+		o.datatype = 'uinteger';
+		o.default = '60';
+
 		o = s.option(form.Value, 'tool_timeout_sec', _('Tool timeout'));
 		o.datatype = 'uinteger';
 		o.default = '5';

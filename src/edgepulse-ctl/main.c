@@ -31,6 +31,7 @@ struct agent_config {
 	int shell_enabled;
 	int ubus_enabled;
 	int request_timeout_sec;
+	int heartbeat_interval_sec;
 	int tool_timeout_sec;
 	int max_tool_output_bytes;
 	char policy_profile[64];
@@ -178,6 +179,7 @@ static void init_agent_config(struct agent_config *agent,
 	agent->shell_enabled = 1;
 	agent->ubus_enabled = 1;
 	agent->request_timeout_sec = 60;
+	agent->heartbeat_interval_sec = 60;
 	agent->tool_timeout_sec = 5;
 	agent->max_tool_output_bytes = 8192;
 	snprintf(agent->policy_profile, sizeof(agent->policy_profile), "%s", "read_only");
@@ -263,6 +265,8 @@ static int read_agent_config(struct agent_config *agent,
 				agent->ubus_enabled = parse_bool_value(value, agent->ubus_enabled);
 			else if (strcmp(key, "request_timeout_sec") == 0)
 				agent->request_timeout_sec = parse_int_value(value, agent->request_timeout_sec);
+			else if (strcmp(key, "heartbeat_interval_sec") == 0)
+				agent->heartbeat_interval_sec = parse_int_value(value, agent->heartbeat_interval_sec);
 			else if (strcmp(key, "tool_timeout_sec") == 0)
 				agent->tool_timeout_sec = parse_int_value(value, agent->tool_timeout_sec);
 			else if (strcmp(key, "max_tool_output_bytes") == 0)
@@ -1208,6 +1212,7 @@ static int EDGEPULSE_AGENT_UNUSED print_agent_status(void)
 	print_json_string(agent.db_path);
 	printf(",\n");
 	printf("    \"request_timeout_sec\": %d,\n", agent.request_timeout_sec);
+	printf("    \"heartbeat_interval_sec\": %d,\n", agent.heartbeat_interval_sec);
 	printf("    \"tool_timeout_sec\": %d,\n", agent.tool_timeout_sec);
 	printf("    \"max_tool_output_bytes\": %d\n", agent.max_tool_output_bytes);
 	printf("  },\n");

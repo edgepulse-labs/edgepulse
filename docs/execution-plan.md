@@ -312,7 +312,7 @@ OpenWrt package and build configuration todo:
 
 UCI configuration todo:
 
-- [x] Extend `packaging/openwrt-feed/edgepulse/files/etc/config/edgepulse` with an `agent` section containing `enabled`, `local_only`, `memory_enabled`, `shell_enabled`, `ubus_enabled`, `policy_profile`, request timeout, tool timeout, and max tool output size.
+- [x] Extend `packaging/openwrt-feed/edgepulse/files/etc/config/edgepulse` with an `agent` section containing `enabled`, `local_only`, `memory_enabled`, `shell_enabled`, `ubus_enabled`, `policy_profile`, request timeout, heartbeat interval, tool timeout, and max tool output size.
 - [x] Add model configuration sections for at least one remote OpenAI-compatible endpoint, including `enabled`, `role`, `base_url`, `model`, `api_key`, `api_key_env`, timeout, and retry settings.
 - [x] Add defaults that let the agent report a clear "not configured" status when no API key or local model endpoint is available.
 - [x] Support redacted handling for `api_key` in status output, logs, CLI commands, and LuCI.
@@ -321,7 +321,7 @@ UCI configuration todo:
 
 Agent runtime implementation todo:
 
-- [ ] Add an `edgepulse-agentd` daemon or an agent mode inside the existing daemon with procd lifecycle management.
+- [x] Add an `edgepulse-agentd` daemon or an agent mode inside the existing daemon with procd lifecycle management.
 - [x] Add an `edgepulse-agent` or `edgepulse-ctl agent` CLI for `ask`, `diagnose`, `status`, `memory list`, `memory delete`, and `policy show`.
 - [x] Add the first `edgepulse-ctl agent status|diagnose|ask` MVP commands.
 - [x] Implement request context tracking with request ID, user message, selected model, tool call history, compacted observation summary, and final answer.

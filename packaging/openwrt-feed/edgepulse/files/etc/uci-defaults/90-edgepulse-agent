@@ -25,6 +25,7 @@ ensure_agent_section()
 	uci -q get edgepulse.agent.ubus_enabled >/dev/null || uci set edgepulse.agent.ubus_enabled='1'
 	uci -q get edgepulse.agent.policy_profile >/dev/null || uci set edgepulse.agent.policy_profile='read_only'
 	uci -q get edgepulse.agent.request_timeout_sec >/dev/null || uci set edgepulse.agent.request_timeout_sec='60'
+	uci -q get edgepulse.agent.heartbeat_interval_sec >/dev/null || uci set edgepulse.agent.heartbeat_interval_sec='60'
 	uci -q get edgepulse.agent.tool_timeout_sec >/dev/null || uci set edgepulse.agent.tool_timeout_sec='5'
 	uci -q get edgepulse.agent.max_tool_output_bytes >/dev/null || uci set edgepulse.agent.max_tool_output_bytes='8192'
 }

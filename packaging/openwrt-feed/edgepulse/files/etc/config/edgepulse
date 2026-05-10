@@ -21,6 +21,7 @@ config agent 'agent'
 	option ubus_enabled '1'
 	option policy_profile 'read_only'
 	option request_timeout_sec '60'
+	option heartbeat_interval_sec '60'
 	option tool_timeout_sec '5'
 	option max_tool_output_bytes '8192'
 

@@ -312,7 +312,7 @@ OpenWrt package 與 build configuration todo:
 
 UCI configuration todo:
 
-- [x] 擴充 `packaging/openwrt-feed/edgepulse/files/etc/config/edgepulse`，加入 `agent` section，包含 `enabled`、`local_only`、`memory_enabled`、`shell_enabled`、`ubus_enabled`、`policy_profile`、request timeout、tool timeout 與 max tool output size。
+- [x] 擴充 `packaging/openwrt-feed/edgepulse/files/etc/config/edgepulse`，加入 `agent` section，包含 `enabled`、`local_only`、`memory_enabled`、`shell_enabled`、`ubus_enabled`、`policy_profile`、request timeout、heartbeat interval、tool timeout 與 max tool output size。
 - [x] 加入至少一個 remote OpenAI-compatible endpoint 的 model configuration sections，包含 `enabled`、`role`、`base_url`、`model`、`api_key`、`api_key_env`、timeout 與 retry settings。
 - [x] 加入 defaults，讓沒有 API key 或 local model endpoint 時，agent 能回報清楚的 "not configured" status。
 - [x] 在 status output、logs、CLI commands 與 LuCI 中支援 `api_key` redacted handling。
@@ -321,7 +321,7 @@ UCI configuration todo:
 
 Agent runtime implementation todo:
 
-- [ ] 加入 `edgepulse-agentd` daemon，或在現有 daemon 中加入 agent mode，並納入 procd lifecycle management。
+- [x] 加入 `edgepulse-agentd` daemon，或在現有 daemon 中加入 agent mode，並納入 procd lifecycle management。
 - [x] 加入 `edgepulse-agent` 或 `edgepulse-ctl agent` CLI，支援 `ask`、`diagnose`、`status`、`memory list`、`memory delete` 與 `policy show`。
 - [x] 加入第一版 `edgepulse-ctl agent status|diagnose|ask` MVP commands。
 - [x] 實作 request context tracking，包含 request ID、user message、selected model、tool call history、compacted observation summary 與 final answer。

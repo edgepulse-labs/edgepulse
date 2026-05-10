@@ -3147,6 +3147,61 @@ static int json_extract_bool_field(const char *json, const char *key,
 	return -1;
 }
 
+static int json_extract_raw_field(const char *json, const char *key,
+				  char *out, size_t out_size)
+{
+	char pattern[96];
+	const char *cursor;
+	size_t used = 0;
+
+	if (!json || !key || !out || out_size == 0)
+		return -1;
+	out[0] = '\0';
+	snprintf(pattern, sizeof(pattern), "\"%s\"", key);
+	cursor = strstr(json, pattern);
+	if (!cursor)
+		return -1;
+	cursor = strchr(cursor + strlen(pattern), ':');
+	if (!cursor)
+		return -1;
+	cursor++;
+	while (*cursor == ' ' || *cursor == '\t' || *cursor == '\n' || *cursor == '\r')
+		cursor++;
+	if (!*cursor)
+		return -1;
+	if (*cursor == '"') {
+		if (used + 1 >= out_size)
+			return -1;
+		out[used++] = *cursor++;
+		while (*cursor) {
+			if (used + 1 >= out_size)
+				return -1;
+			out[used++] = *cursor;
+			if (*cursor == '\\' && cursor[1]) {
+				cursor++;
+				if (used + 1 >= out_size)
+					return -1;
+				out[used++] = *cursor++;
+				continue;
+			}
+			if (*cursor++ == '"')
+				break;
+		}
+	} else {
+		while (*cursor && *cursor != ',' && *cursor != '}' &&
+		       *cursor != '\n' && *cursor != '\r') {
+			if (*cursor != ' ' && *cursor != '\t') {
+				if (used + 1 >= out_size)
+					return -1;
+				out[used++] = *cursor;
+			}
+			cursor++;
+		}
+	}
+	out[used] = '\0';
+	return used > 0 ? 0 : -1;
+}
+
 static int agent_capture_mcp_call(int argc, char **argv, char *out, size_t out_size)
 {
 	char path[] = "/tmp/edgepulse-mcp-call.XXXXXX";
@@ -3185,17 +3240,22 @@ static int agent_capture_mcp_call(int argc, char **argv, char *out, size_t out_s
 	return rc;
 }
 
+static void print_mcp_jsonrpc_id(const char *id_json)
+{
+	printf("%s", id_json && id_json[0] ? id_json : "null");
+}
+
 static void print_mcp_jsonrpc_result(const char *id, const char *result_json)
 {
 	printf("{\"jsonrpc\":\"2.0\",\"id\":");
-	print_json_string(id && id[0] ? id : "edgepulse-mcp");
+	print_mcp_jsonrpc_id(id);
 	printf(",\"result\":%s}\n", result_json ? result_json : "{}");
 }
 
 static void print_mcp_jsonrpc_text_result(const char *id, const char *text)
 {
 	printf("{\"jsonrpc\":\"2.0\",\"id\":");
-	print_json_string(id && id[0] ? id : "edgepulse-mcp");
+	print_mcp_jsonrpc_id(id);
 	printf(",\"result\":{\"content\":[{\"type\":\"text\",\"text\":");
 	print_json_string(text ? text : "");
 	printf("}]}}\n");
@@ -3204,7 +3264,7 @@ static void print_mcp_jsonrpc_text_result(const char *id, const char *text)
 static void print_mcp_jsonrpc_error(const char *id, int code, const char *message)
 {
 	printf("{\"jsonrpc\":\"2.0\",\"id\":");
-	print_json_string(id && id[0] ? id : "edgepulse-mcp");
+	print_mcp_jsonrpc_id(id);
 	printf(",\"error\":{\"code\":%d,\"message\":", code);
 	print_json_string(message ? message : "error");
 	printf("}}\n");
@@ -3226,7 +3286,7 @@ static void handle_agent_mcp_jsonrpc_line(const char *line)
 	int call_argc = 0;
 	int confirm = 0;
 
-	json_extract_string_field(line, "id", id, sizeof(id));
+	json_extract_raw_field(line, "id", id, sizeof(id));
 	if (json_extract_string_field(line, "method", method, sizeof(method)) != 0) {
 		print_mcp_jsonrpc_error(id, -32600, "Missing JSON-RPC method");
 		return;
@@ -3241,7 +3301,7 @@ static void handle_agent_mcp_jsonrpc_line(const char *line)
 	if (strcmp(method, "tools/list") == 0 ||
 	    strcmp(method, "edgepulse.mcp.methods") == 0) {
 		printf("{\"jsonrpc\":\"2.0\",\"id\":");
-		print_json_string(id[0] ? id : "edgepulse-mcp");
+		print_mcp_jsonrpc_id(id);
 		printf(",\"result\":{\"tools\":");
 		print_agent_mcp_tools_array();
 		printf("}}\n");

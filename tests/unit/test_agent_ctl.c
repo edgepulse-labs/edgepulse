@@ -381,6 +381,16 @@ static void test_agent_mcp_json_helpers(void)
 					  &boolean),
 		  0);
 	check_int("json bool value", boolean, 1);
+	check_int("extract raw numeric id",
+		  json_extract_raw_field("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}",
+					 "id", value, sizeof(value)),
+		  0);
+	check_string("json raw numeric id", value, "1");
+	check_int("extract raw string id",
+		  json_extract_raw_field("{\"id\":\"abc-1\"}", "id", value,
+					 sizeof(value)),
+		  0);
+	check_string("json raw string id", value, "\"abc-1\"");
 }
 
 int main(void)

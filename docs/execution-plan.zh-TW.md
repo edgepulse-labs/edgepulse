@@ -316,29 +316,29 @@ UCI configuration todo:
 - [x] 加入至少一個 remote OpenAI-compatible endpoint 的 model configuration sections，包含 `enabled`、`role`、`base_url`、`model`、`api_key`、`api_key_env`、timeout 與 retry settings。
 - [x] 加入 defaults，讓沒有 API key 或 local model endpoint 時，agent 能回報清楚的 "not configured" status。
 - [x] 在 status output、logs、CLI commands 與 LuCI 中支援 `api_key` redacted handling。
-- [ ] 加入 UCI validation，檢查 URL format、model name presence、timeout ranges、memory toggle、shell toggle 與 read-only policy mode。
+- [x] 加入 UCI validation，檢查 URL format、model name presence、timeout ranges、memory toggle、shell toggle 與 read-only policy mode。
 - [ ] 加入 migration-safe defaults，確保安裝新 package 不會覆蓋既有 telemetry settings 或 secret fields。
 
 Agent runtime implementation todo:
 
 - [ ] 加入 `edgepulse-agentd` daemon，或在現有 daemon 中加入 agent mode，並納入 procd lifecycle management。
-- [ ] 加入 `edgepulse-agent` 或 `edgepulse-ctl agent` CLI，支援 `ask`、`diagnose`、`status`、`memory list`、`memory delete` 與 `policy show`。
+- [x] 加入 `edgepulse-agent` 或 `edgepulse-ctl agent` CLI，支援 `ask`、`diagnose`、`status`、`memory list`、`memory delete` 與 `policy show`。
 - [x] 加入第一版 `edgepulse-ctl agent status|diagnose|ask` MVP commands。
-- [ ] 實作 request context tracking，包含 request ID、user message、selected model、tool call history、compacted observation summary 與 final answer。
-- [ ] 實作 read-only shell executor，具備 allowlist、structured argument schemas、timeout、output size limits、exit code capture 與 audit logging。
+- [x] 實作 request context tracking，包含 request ID、user message、selected model、tool call history、compacted observation summary 與 final answer。
+- [x] 實作 read-only shell executor，具備 allowlist、structured argument schemas、timeout、output size limits、exit code capture 與 audit logging。
 - [ ] 實作 read-only `ubus` adapter，支援 `system`、`network.interface`、`network.device`、`network.wireless`、`service`、`iwinfo` 與 selected status methods。
 - [ ] 實作 OpenAI-compatible model client，支援 configurable base URL、model、API key source、timeout、retries 與 response/error normalization。
 - [ ] 實作 model routing，支援 classifier、planner、analyzer、responder 與 fallback 等 roles。
-- [ ] 加入 local SQLite memory tables，儲存 observations、user facts、diagnostic summaries、sensitivity level、TTL 與 source metadata。
-- [ ] 加入 policy engine，預設封鎖 destructive shell commands、UCI mutation、package installation/removal、service restarts、firewall changes 與 file deletion。
-- [ ] 為每次 request、model call、tool call、policy decision 與 memory write 加入 audit logs。
-- [ ] 加入 redaction helpers，避免 secrets 被寫入 logs 或送到 remote models。
+- [x] 加入 local SQLite memory tables，儲存 observations、user facts、diagnostic summaries、sensitivity level、TTL 與 source metadata。
+- [x] 加入 policy engine，預設封鎖 destructive shell commands、UCI mutation、package installation/removal、service restarts、firewall changes 與 file deletion。
+- [x] 為每次 request、model call、tool call、policy decision 與 memory write 加入 audit logs。
+- [x] 加入 redaction helpers，避免 secrets 被寫入 logs 或送到 remote models。
 
 LuCI application todo:
 
 - [x] 在 `luci-app-edgepulse` 底下加入 AI Agent menu entry。
 - [x] 加入 interaction page，讓使用者可以提出 diagnostic question，並看到 answer、tool evidence、model used 與 policy decisions。
-- [ ] 加入 diagnostic shortcut page 或 mode，支援 WAN down、DNS failure、Wi-Fi instability、high CPU、high memory 與 package/service health 等常見任務。
+- [x] 加入 diagnostic shortcut page 或 mode，支援 WAN down、DNS failure、Wi-Fi instability、high CPU、high memory 與 package/service health 等常見任務。
 - [x] 擴充 settings page，加入 AI agent enable/disable、local-only mode、model provider、remote base URL、model name、API key 或 API key environment variable、memory toggle、shell toggle、`ubus` toggle、policy profile 與 timeout settings。
 - [x] 在 LuCI 中 redacted API keys，並要求明確 replacement 才能變更。
 - [x] 加入 status panel，顯示 agent 是否啟用、model backend 是否已設定、last request status、memory database status 與 policy mode。

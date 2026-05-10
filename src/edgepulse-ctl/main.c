@@ -1,9 +1,13 @@
 #include "edgepulse.h"
 
 #include <errno.h>
+#include <fcntl.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/types.h>
+#include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -27,6 +31,7 @@ struct agent_config {
 	int tool_timeout_sec;
 	int max_tool_output_bytes;
 	char policy_profile[64];
+	char db_path[AGENT_STR_SIZE];
 };
 
 struct agent_model_config {
@@ -41,6 +46,14 @@ struct agent_model_config {
 	char model[128];
 	char api_key[AGENT_STR_SIZE];
 	char api_key_env[128];
+};
+
+struct agent_tool_result {
+	char name[64];
+	char status[32];
+	int exit_code;
+	long elapsed_ms;
+	char output[2048];
 };
 
 static void json_escape(FILE *fp, const char *value)
@@ -150,6 +163,7 @@ static void init_agent_config(struct agent_config *agent,
 	agent->tool_timeout_sec = 5;
 	agent->max_tool_output_bytes = 8192;
 	snprintf(agent->policy_profile, sizeof(agent->policy_profile), "%s", "read_only");
+	snprintf(agent->db_path, sizeof(agent->db_path), "%s", EDGEPULSE_DB_PATH);
 	model->timeout_sec = 30;
 	model->retry_count = 1;
 #ifdef EDGEPULSE_AI_DEFAULT_BASE_URL
@@ -214,7 +228,11 @@ static int read_agent_config(struct agent_config *agent,
 		if (!key)
 			continue;
 
-		if (strcmp(section_type, "agent") == 0) {
+		if (strcmp(section_type, "edgepulse") == 0 &&
+		    strcmp(section_name, "main") == 0) {
+			if (strcmp(key, "db_path") == 0 && value[0] != '\0')
+				snprintf(agent->db_path, sizeof(agent->db_path), "%s", value);
+		} else if (strcmp(section_type, "agent") == 0) {
 			if (strcmp(key, "enabled") == 0)
 				agent->enabled = parse_bool_value(value, agent->enabled);
 			else if (strcmp(key, "local_only") == 0)
@@ -276,6 +294,300 @@ static const char *agent_model_status(const struct agent_config *agent,
 	if (!model->configured)
 		return "missing_credentials_or_model";
 	return "configured";
+}
+
+static int agent_config_is_valid_url(const char *value)
+{
+	return !value || value[0] == '\0' ||
+		strncmp(value, "https://", 8) == 0 ||
+		strncmp(value, "http://127.0.0.1", 16) == 0 ||
+		strncmp(value, "http://localhost", 16) == 0;
+}
+
+static int agent_config_has_warnings(const struct agent_config *agent,
+				     const struct agent_model_config *model)
+{
+	if (strcmp(agent->policy_profile, "read_only") != 0)
+		return 1;
+	if (agent->request_timeout_sec < 1 || agent->request_timeout_sec > 600)
+		return 1;
+	if (agent->tool_timeout_sec < 1 || agent->tool_timeout_sec > 60)
+		return 1;
+	if (agent->max_tool_output_bytes < 1024 || agent->max_tool_output_bytes > 65536)
+		return 1;
+	if (!agent_config_is_valid_url(model->base_url))
+		return 1;
+	if (model->enabled && model->model[0] == '\0')
+		return 1;
+	return 0;
+}
+
+static void print_agent_validation(const struct agent_config *agent,
+				   const struct agent_model_config *model)
+{
+	int first = 1;
+
+	printf("  \"validation\": [\n");
+
+#define PRINT_VALIDATION_WARNING(msg) \
+	do { \
+		if (!first) \
+			printf(",\n"); \
+		printf("    { \"severity\": \"warning\", \"message\": "); \
+		print_json_string(msg); \
+		printf(" }"); \
+		first = 0; \
+	} while (0)
+
+	if (strcmp(agent->policy_profile, "read_only") != 0)
+		PRINT_VALIDATION_WARNING("Only the read_only policy profile is supported by the current MVP.");
+	if (agent->request_timeout_sec < 1 || agent->request_timeout_sec > 600)
+		PRINT_VALIDATION_WARNING("request_timeout_sec should be between 1 and 600 seconds.");
+	if (agent->tool_timeout_sec < 1 || agent->tool_timeout_sec > 60)
+		PRINT_VALIDATION_WARNING("tool_timeout_sec should be between 1 and 60 seconds.");
+	if (agent->max_tool_output_bytes < 1024 || agent->max_tool_output_bytes > 65536)
+		PRINT_VALIDATION_WARNING("max_tool_output_bytes should be between 1024 and 65536 bytes.");
+	if (!agent_config_is_valid_url(model->base_url))
+		PRINT_VALIDATION_WARNING("Remote model base_url should use https, localhost, or 127.0.0.1.");
+	if (model->enabled && model->model[0] == '\0')
+		PRINT_VALIDATION_WARNING("Enabled model sections must include a model name.");
+
+#undef PRINT_VALIDATION_WARNING
+
+	if (first)
+		printf("    { \"severity\": \"ok\", \"message\": \"Agent configuration is valid for the current MVP.\" }");
+
+	printf("\n");
+	printf("  ]");
+}
+
+static void agent_make_request_id(char *buffer, size_t size)
+{
+	snprintf(buffer, size, "%lld-%ld", (long long)time(NULL), (long)getpid());
+}
+
+static int agent_store_audit(const char *db_path, const char *request_id,
+			     const char *event_type, const char *detail)
+{
+	static const char *sql =
+		"INSERT INTO agent_audit_log(created_at, request_id, event_type, detail) "
+		"VALUES(strftime('%s','now'), ?, ?, ?);";
+	sqlite3 *db = NULL;
+	sqlite3_stmt *stmt = NULL;
+	int rc;
+
+	if (edgepulse_init_database(db_path) != 0)
+		return -1;
+	if (sqlite3_open(db_path, &db) != SQLITE_OK)
+		return -1;
+	if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) != SQLITE_OK) {
+		sqlite3_close(db);
+		return -1;
+	}
+
+	sqlite3_bind_text(stmt, 1, request_id, -1, SQLITE_TRANSIENT);
+	sqlite3_bind_text(stmt, 2, event_type, -1, SQLITE_TRANSIENT);
+	sqlite3_bind_text(stmt, 3, detail, -1, SQLITE_TRANSIENT);
+	rc = sqlite3_step(stmt);
+
+	sqlite3_finalize(stmt);
+	sqlite3_close(db);
+	return rc == SQLITE_DONE ? 0 : -1;
+}
+
+static int agent_store_memory(const char *db_path, const char *content)
+{
+	static const char *sql =
+		"INSERT INTO agent_memory(created_at, source, sensitivity, ttl_sec, content) "
+		"VALUES(strftime('%s','now'), 'agent', 'normal', 0, ?);";
+	sqlite3 *db = NULL;
+	sqlite3_stmt *stmt = NULL;
+	int rc;
+
+	if (edgepulse_init_database(db_path) != 0)
+		return -1;
+	if (sqlite3_open(db_path, &db) != SQLITE_OK)
+		return -1;
+	if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) != SQLITE_OK) {
+		sqlite3_close(db);
+		return -1;
+	}
+
+	sqlite3_bind_text(stmt, 1, content, -1, SQLITE_TRANSIENT);
+	rc = sqlite3_step(stmt);
+
+	sqlite3_finalize(stmt);
+	sqlite3_close(db);
+	return rc == SQLITE_DONE ? 0 : -1;
+}
+
+static int agent_store_request(const char *db_path, const char *request_id,
+			       const char *question, const char *model_status,
+			       const char *answer)
+{
+	static const char *sql =
+		"INSERT INTO agent_requests(request_id, created_at, status, question, model_status, answer) "
+		"VALUES(?, strftime('%s','now'), 'ok', ?, ?, ?) "
+		"ON CONFLICT(request_id) DO UPDATE SET "
+		"status=excluded.status, question=excluded.question, "
+		"model_status=excluded.model_status, answer=excluded.answer;";
+	sqlite3 *db = NULL;
+	sqlite3_stmt *stmt = NULL;
+	int rc;
+
+	if (edgepulse_init_database(db_path) != 0)
+		return -1;
+	if (sqlite3_open(db_path, &db) != SQLITE_OK)
+		return -1;
+	if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) != SQLITE_OK) {
+		sqlite3_close(db);
+		return -1;
+	}
+
+	sqlite3_bind_text(stmt, 1, request_id, -1, SQLITE_TRANSIENT);
+	sqlite3_bind_text(stmt, 2, question, -1, SQLITE_TRANSIENT);
+	sqlite3_bind_text(stmt, 3, model_status, -1, SQLITE_TRANSIENT);
+	sqlite3_bind_text(stmt, 4, answer, -1, SQLITE_TRANSIENT);
+	rc = sqlite3_step(stmt);
+
+	sqlite3_finalize(stmt);
+	sqlite3_close(db);
+	return rc == SQLITE_DONE ? 0 : -1;
+}
+
+static int agent_command_allowed(char *const argv[])
+{
+	if (!argv || !argv[0])
+		return 0;
+	if (strcmp(argv[0], "uname") == 0)
+		return argv[1] && strcmp(argv[1], "-a") == 0 && !argv[2];
+	if (strcmp(argv[0], "uptime") == 0)
+		return !argv[1];
+	return 0;
+}
+
+static int agent_run_read_only_command(const char *name, char *const argv[],
+				       int timeout_sec, int output_limit,
+				       struct agent_tool_result *result)
+{
+	int pipefd[2];
+	pid_t pid;
+	time_t start;
+	size_t used = 0;
+	int status = 0;
+
+	memset(result, 0, sizeof(*result));
+	snprintf(result->name, sizeof(result->name), "%s", name);
+	snprintf(result->status, sizeof(result->status), "%s", "blocked");
+	result->exit_code = -1;
+
+	if (!agent_command_allowed(argv)) {
+		snprintf(result->output, sizeof(result->output),
+			 "Command blocked by read-only allowlist.");
+		return -1;
+	}
+
+	if (output_limit <= 0 || output_limit > (int)sizeof(result->output) - 1)
+		output_limit = (int)sizeof(result->output) - 1;
+
+	if (pipe(pipefd) != 0) {
+		snprintf(result->status, sizeof(result->status), "%s", "error");
+		snprintf(result->output, sizeof(result->output), "%s", strerror(errno));
+		return -1;
+	}
+
+	pid = fork();
+	if (pid < 0) {
+		close(pipefd[0]);
+		close(pipefd[1]);
+		snprintf(result->status, sizeof(result->status), "%s", "error");
+		snprintf(result->output, sizeof(result->output), "%s", strerror(errno));
+		return -1;
+	}
+
+	if (pid == 0) {
+		close(pipefd[0]);
+		dup2(pipefd[1], STDOUT_FILENO);
+		dup2(pipefd[1], STDERR_FILENO);
+		close(pipefd[1]);
+		execvp(argv[0], argv);
+		_exit(127);
+	}
+
+	close(pipefd[1]);
+	fcntl(pipefd[0], F_SETFL, fcntl(pipefd[0], F_GETFL, 0) | O_NONBLOCK);
+	start = time(NULL);
+
+	while (1) {
+		char buffer[256];
+		ssize_t nread = read(pipefd[0], buffer, sizeof(buffer));
+		pid_t waited;
+
+		if (nread > 0) {
+			size_t copy = (size_t)nread;
+			if (copy > (size_t)output_limit - used)
+				copy = (size_t)output_limit - used;
+			if (copy > 0) {
+				memcpy(result->output + used, buffer, copy);
+				used += copy;
+				result->output[used] = '\0';
+			}
+		}
+
+		waited = waitpid(pid, &status, WNOHANG);
+		if (waited == pid)
+			break;
+
+		if (timeout_sec > 0 && time(NULL) - start >= timeout_sec) {
+			kill(pid, SIGKILL);
+			waitpid(pid, &status, 0);
+			snprintf(result->status, sizeof(result->status), "%s", "timeout");
+			result->elapsed_ms = (long)(time(NULL) - start) * 1000L;
+			close(pipefd[0]);
+			return -1;
+		}
+
+		usleep(100000);
+	}
+
+	while (used < (size_t)output_limit) {
+		char buffer[256];
+		ssize_t nread = read(pipefd[0], buffer, sizeof(buffer));
+		size_t copy;
+
+		if (nread <= 0)
+			break;
+		copy = (size_t)nread;
+		if (copy > (size_t)output_limit - used)
+			copy = (size_t)output_limit - used;
+		memcpy(result->output + used, buffer, copy);
+		used += copy;
+		result->output[used] = '\0';
+	}
+
+	close(pipefd[0]);
+	result->elapsed_ms = (long)(time(NULL) - start) * 1000L;
+	if (WIFEXITED(status)) {
+		result->exit_code = WEXITSTATUS(status);
+		snprintf(result->status, sizeof(result->status), "%s",
+			 result->exit_code == 0 ? "ok" : "error");
+	} else {
+		snprintf(result->status, sizeof(result->status), "%s", "error");
+	}
+
+	return result->exit_code == 0 ? 0 : -1;
+}
+
+static void print_agent_tool_json(const struct agent_tool_result *result)
+{
+	printf("    { \"name\": ");
+	print_json_string(result->name);
+	printf(", \"mode\": \"read_only\", \"status\": ");
+	print_json_string(result->status);
+	printf(", \"exit_code\": %d, \"elapsed_ms\": %ld, \"output\": ",
+	       result->exit_code, result->elapsed_ms);
+	print_json_string(result->output);
+	printf(" }");
 }
 
 static int print_status(void)
@@ -573,6 +885,9 @@ static int EDGEPULSE_AGENT_UNUSED print_agent_status(void)
 	printf("    \"policy_profile\": ");
 	print_json_string(agent.policy_profile);
 	printf(",\n");
+	printf("    \"db_path\": ");
+	print_json_string(agent.db_path);
+	printf(",\n");
 	printf("    \"request_timeout_sec\": %d,\n", agent.request_timeout_sec);
 	printf("    \"tool_timeout_sec\": %d,\n", agent.tool_timeout_sec);
 	printf("    \"max_tool_output_bytes\": %d\n", agent.max_tool_output_bytes);
@@ -609,6 +924,8 @@ static int EDGEPULSE_AGENT_UNUSED print_agent_status(void)
 	printf(",\n");
 	printf("  \"config_status\": ");
 	print_json_string(config_rc == 0 ? "loaded" : "defaults");
+	printf(",\n");
+	print_agent_validation(&agent, &model);
 	printf("\n");
 	printf("}\n");
 
@@ -664,10 +981,20 @@ static int EDGEPULSE_AGENT_UNUSED print_agent_diagnose(const char *question)
 	struct agent_model_config model;
 	struct edgepulse_snapshot snapshot;
 	const char *model_status;
+	const char *answer;
 	double memory_ratio;
+	char request_id[64];
+	char memory_summary[512];
+	struct agent_tool_result uname_result;
+	struct agent_tool_result uptime_result;
+	int have_uname = 0;
+	int have_uptime = 0;
+	char *const uname_argv[] = { "uname", "-a", NULL };
+	char *const uptime_argv[] = { "uptime", NULL };
 
 	read_agent_config(&agent, &model);
 	model_status = agent_model_status(&agent, &model);
+	agent_make_request_id(request_id, sizeof(request_id));
 
 	if (!agent.enabled) {
 		printf("{\n");
@@ -683,9 +1010,48 @@ static int EDGEPULSE_AGENT_UNUSED print_agent_diagnose(const char *question)
 	}
 
 	memory_ratio = edgepulse_memory_used_ratio(&snapshot);
+	answer = strcmp(model_status, "configured") == 0 ?
+		"The remote model backend is configured, but this MVP keeps execution local and read-only. The local telemetry snapshot is included for grounded diagnostics." :
+		"The AI agent MVP ran a local read-only diagnostic. Configure and enable a model backend to add remote reasoning; local telemetry and policy findings are included in this response.";
+
+	snprintf(memory_summary, sizeof(memory_summary),
+		 "Diagnostic request %s: load %.2f/%.2f/%.2f, memory %.2f%%, model_status=%s",
+		 request_id, snapshot.load1, snapshot.load5, snapshot.load15,
+		 memory_ratio * 100.0, model_status);
+	agent_store_audit(agent.db_path, request_id, "request.started",
+			  question ? question : "");
+	agent_store_audit(agent.db_path, request_id, "tool.edgepulse_snapshot",
+			  "Collected local read-only telemetry snapshot.");
+	if (agent.shell_enabled) {
+		agent_run_read_only_command("shell.uname", uname_argv,
+					    agent.tool_timeout_sec,
+					    agent.max_tool_output_bytes,
+					    &uname_result);
+		have_uname = 1;
+		agent_store_audit(agent.db_path, request_id, "tool.shell.uname",
+				  uname_result.status);
+		agent_run_read_only_command("shell.uptime", uptime_argv,
+					    agent.tool_timeout_sec,
+					    agent.max_tool_output_bytes,
+					    &uptime_result);
+		have_uptime = 1;
+		agent_store_audit(agent.db_path, request_id, "tool.shell.uptime",
+				  uptime_result.status);
+	}
+	agent_store_audit(agent.db_path, request_id, "policy.read_only",
+			  agent_config_has_warnings(&agent, &model) ?
+			  "Read-only policy active with configuration warnings." :
+			  "Read-only policy active.");
+	if (agent.memory_enabled)
+		agent_store_memory(agent.db_path, memory_summary);
+	agent_store_request(agent.db_path, request_id, question ? question : "",
+			    model_status, answer);
 
 	printf("{\n");
 	printf("  \"status\": \"ok\",\n");
+	printf("  \"request_id\": ");
+	print_json_string(request_id);
+	printf(",\n");
 	printf("  \"mode\": \"read_only_diagnostic\",\n");
 	printf("  \"question\": ");
 	print_json_string(question ? question : "");
@@ -697,7 +1063,16 @@ static int EDGEPULSE_AGENT_UNUSED print_agent_diagnose(const char *question)
 	print_json_string(agent.policy_profile);
 	printf(",\n");
 	printf("  \"tools\": [\n");
-	printf("    { \"name\": \"edgepulse_snapshot\", \"mode\": \"read_only\", \"status\": \"ok\" }\n");
+	printf("    { \"name\": \"edgepulse_snapshot\", \"mode\": \"read_only\", \"status\": \"ok\" }");
+	if (have_uname) {
+		printf(",\n");
+		print_agent_tool_json(&uname_result);
+	}
+	if (have_uptime) {
+		printf(",\n");
+		print_agent_tool_json(&uptime_result);
+	}
+	printf("\n");
 	printf("  ],\n");
 	print_agent_findings(&snapshot, &agent);
 	printf("  \"snapshot\": {\n");
@@ -708,14 +1083,131 @@ static int EDGEPULSE_AGENT_UNUSED print_agent_diagnose(const char *question)
 	printf("    \"memory_used_ratio\": %.4f\n", memory_ratio);
 	printf("  },\n");
 	printf("  \"answer\": ");
-	if (strcmp(model_status, "configured") == 0) {
-		print_json_string("The remote model backend is configured, but this MVP keeps execution local and read-only. The local telemetry snapshot is included for grounded diagnostics.");
-	} else {
-		print_json_string("The AI agent MVP ran a local read-only diagnostic. Configure and enable a model backend to add remote reasoning; local telemetry and policy findings are included in this response.");
-	}
+	print_json_string(answer);
 	printf("\n");
 	printf("}\n");
 
+	return 0;
+}
+
+static int EDGEPULSE_AGENT_UNUSED print_agent_memory_list(void)
+{
+	static const char *sql =
+		"SELECT id, created_at, source, sensitivity, ttl_sec, content "
+		"FROM agent_memory ORDER BY created_at DESC, id DESC LIMIT 50;";
+	struct agent_config agent;
+	struct agent_model_config model;
+	sqlite3 *db = NULL;
+	sqlite3_stmt *stmt = NULL;
+	int first = 1;
+	int rc;
+
+	read_agent_config(&agent, &model);
+	if (edgepulse_init_database(agent.db_path) != 0 ||
+	    sqlite3_open(agent.db_path, &db) != SQLITE_OK)
+		goto unavailable;
+	if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) != SQLITE_OK)
+		goto unavailable;
+
+	printf("{\n");
+	printf("  \"memory\": [\n");
+	while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+		if (!first)
+			printf(",\n");
+		first = 0;
+		printf("    { \"id\": %lld, \"created_at\": %lld, \"source\": ",
+		       sqlite3_column_int64(stmt, 0),
+		       sqlite3_column_int64(stmt, 1));
+		print_json_string((const char *)sqlite3_column_text(stmt, 2));
+		printf(", \"sensitivity\": ");
+		print_json_string((const char *)sqlite3_column_text(stmt, 3));
+		printf(", \"ttl_sec\": %d, \"content\": ",
+		       sqlite3_column_int(stmt, 4));
+		print_json_string((const char *)sqlite3_column_text(stmt, 5));
+		printf(" }");
+	}
+	printf("\n");
+	printf("  ]\n");
+	printf("}\n");
+
+	sqlite3_finalize(stmt);
+	sqlite3_close(db);
+	return rc == SQLITE_DONE ? 0 : 1;
+
+unavailable:
+	if (stmt)
+		sqlite3_finalize(stmt);
+	if (db)
+		sqlite3_close(db);
+	printf("{ \"memory\": [], \"status\": \"unavailable\" }\n");
+	return 0;
+}
+
+static int EDGEPULSE_AGENT_UNUSED delete_agent_memory(const char *id)
+{
+	struct agent_config agent;
+	struct agent_model_config model;
+	sqlite3 *db = NULL;
+	sqlite3_stmt *stmt = NULL;
+	const char *sql_one = "DELETE FROM agent_memory WHERE id = ?;";
+	const char *sql_all = "DELETE FROM agent_memory;";
+	long parsed_id;
+	char *end = NULL;
+	int rc;
+
+	if (!id || id[0] == '\0') {
+		fprintf(stderr, "edgepulse-ctl: memory delete requires an id or all\n");
+		return 2;
+	}
+
+	read_agent_config(&agent, &model);
+	if (edgepulse_init_database(agent.db_path) != 0 ||
+	    sqlite3_open(agent.db_path, &db) != SQLITE_OK)
+		return 1;
+
+	if (strcmp(id, "all") == 0) {
+		rc = sqlite3_exec(db, sql_all, NULL, NULL, NULL);
+		sqlite3_close(db);
+		printf("{ \"status\": %s }\n", rc == SQLITE_OK ? "\"deleted\"" : "\"error\"");
+		return rc == SQLITE_OK ? 0 : 1;
+	}
+
+	parsed_id = strtol(id, &end, 10);
+	if (parsed_id <= 0 || !end || *end != '\0') {
+		sqlite3_close(db);
+		fprintf(stderr, "edgepulse-ctl: invalid memory id: %s\n", id);
+		return 2;
+	}
+
+	if (sqlite3_prepare_v2(db, sql_one, -1, &stmt, NULL) != SQLITE_OK) {
+		sqlite3_close(db);
+		return 1;
+	}
+	sqlite3_bind_int64(stmt, 1, parsed_id);
+	rc = sqlite3_step(stmt);
+	sqlite3_finalize(stmt);
+	sqlite3_close(db);
+	printf("{ \"status\": %s, \"id\": %ld }\n",
+	       rc == SQLITE_DONE ? "\"deleted\"" : "\"error\"", parsed_id);
+	return rc == SQLITE_DONE ? 0 : 1;
+}
+
+static int EDGEPULSE_AGENT_UNUSED print_agent_policy(void)
+{
+	struct agent_config agent;
+	struct agent_model_config model;
+
+	read_agent_config(&agent, &model);
+	printf("{\n");
+	printf("  \"policy_profile\": ");
+	print_json_string(agent.policy_profile);
+	printf(",\n");
+	printf("  \"mode\": \"read_only\",\n");
+	printf("  \"allowed_tools\": [\"edgepulse_snapshot\", \"shell.uname\", \"shell.uptime\"],\n");
+	printf("  \"blocked_categories\": [\"file_deletion\", \"uci_mutation\", \"service_restart\", \"package_install_remove\", \"firewall_change\", \"arbitrary_shell\"],\n");
+	print_agent_validation(&agent, &model);
+	printf("\n");
+	printf("}\n");
 	return 0;
 }
 
@@ -749,7 +1241,27 @@ static int handle_agent_command(int argc, char **argv)
 		return print_agent_diagnose(argv[3]);
 	}
 
-	fprintf(stderr, "Usage: edgepulse-ctl agent <status|diagnose|ask> [message]\n");
+	if (strcmp(argv[2], "memory") == 0) {
+		if (argc < 4) {
+			fprintf(stderr, "Usage: edgepulse-ctl agent memory <list|delete> [id|all]\n");
+			return 2;
+		}
+		if (strcmp(argv[3], "list") == 0)
+			return print_agent_memory_list();
+		if (strcmp(argv[3], "delete") == 0)
+			return delete_agent_memory(argc >= 5 ? argv[4] : NULL);
+		fprintf(stderr, "Usage: edgepulse-ctl agent memory <list|delete> [id|all]\n");
+		return 2;
+	}
+
+	if (strcmp(argv[2], "policy") == 0) {
+		if (argc >= 4 && strcmp(argv[3], "show") == 0)
+			return print_agent_policy();
+		fprintf(stderr, "Usage: edgepulse-ctl agent policy show\n");
+		return 2;
+	}
+
+	fprintf(stderr, "Usage: edgepulse-ctl agent <status|diagnose|ask|memory|policy> [message]\n");
 	return 2;
 #endif
 }

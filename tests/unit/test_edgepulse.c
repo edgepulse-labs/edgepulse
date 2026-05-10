@@ -221,6 +221,33 @@ static void test_database_write(void)
 	unlink(db_path);
 }
 
+static void test_agent_schema_tables(void)
+{
+	const char *db_path = "/tmp/edgepulse-agent-schema-test.db";
+	sqlite3 *db = NULL;
+	sqlite3_stmt *stmt = NULL;
+	int rc;
+
+	unlink(db_path);
+	check_int("agent schema init database", edgepulse_init_database(db_path), 0);
+	check_int("agent schema open db", sqlite3_open(db_path, &db), SQLITE_OK);
+	check_int("agent schema query prepare",
+		  sqlite3_prepare_v2(db,
+				     "SELECT count(*) FROM sqlite_master "
+				     "WHERE type = 'table' "
+				     "AND name IN ('agent_memory', 'agent_audit_log', 'agent_requests');",
+				     -1, &stmt, NULL),
+		  SQLITE_OK);
+	rc = sqlite3_step(stmt);
+	check_int("agent schema query row", rc, SQLITE_ROW);
+	if (rc == SQLITE_ROW)
+		check_int("agent schema table count", sqlite3_column_int(stmt, 0), 3);
+
+	sqlite3_finalize(stmt);
+	sqlite3_close(db);
+	unlink(db_path);
+}
+
 static void test_feature_window_storage(void)
 {
 	const char *db_path = "/tmp/edgepulse-feature-test.db";
@@ -347,6 +374,7 @@ int main(void)
 	test_collect_snapshot();
 	test_collect_sample_batch();
 	test_database_write();
+	test_agent_schema_tables();
 	test_empty_feature_window_storage();
 	test_feature_window_storage();
 	test_retention_cleanup();

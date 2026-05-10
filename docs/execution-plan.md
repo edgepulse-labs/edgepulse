@@ -316,29 +316,29 @@ UCI configuration todo:
 - [x] Add model configuration sections for at least one remote OpenAI-compatible endpoint, including `enabled`, `role`, `base_url`, `model`, `api_key`, `api_key_env`, timeout, and retry settings.
 - [x] Add defaults that let the agent report a clear "not configured" status when no API key or local model endpoint is available.
 - [x] Support redacted handling for `api_key` in status output, logs, CLI commands, and LuCI.
-- [ ] Add UCI validation for URL format, model name presence, timeout ranges, memory toggle, shell toggle, and read-only policy mode.
+- [x] Add UCI validation for URL format, model name presence, timeout ranges, memory toggle, shell toggle, and read-only policy mode.
 - [ ] Add migration-safe defaults so installing a new package does not overwrite existing telemetry settings or secret fields.
 
 Agent runtime implementation todo:
 
 - [ ] Add an `edgepulse-agentd` daemon or an agent mode inside the existing daemon with procd lifecycle management.
-- [ ] Add an `edgepulse-agent` or `edgepulse-ctl agent` CLI for `ask`, `diagnose`, `status`, `memory list`, `memory delete`, and `policy show`.
+- [x] Add an `edgepulse-agent` or `edgepulse-ctl agent` CLI for `ask`, `diagnose`, `status`, `memory list`, `memory delete`, and `policy show`.
 - [x] Add the first `edgepulse-ctl agent status|diagnose|ask` MVP commands.
-- [ ] Implement request context tracking with request ID, user message, selected model, tool call history, compacted observation summary, and final answer.
-- [ ] Implement a read-only shell executor with an allowlist, structured argument schemas, timeout, output size limits, exit code capture, and audit logging.
+- [x] Implement request context tracking with request ID, user message, selected model, tool call history, compacted observation summary, and final answer.
+- [x] Implement a read-only shell executor with an allowlist, structured argument schemas, timeout, output size limits, exit code capture, and audit logging.
 - [ ] Implement a read-only `ubus` adapter for `system`, `network.interface`, `network.device`, `network.wireless`, `service`, `iwinfo`, and selected status methods.
 - [ ] Implement an OpenAI-compatible model client with configurable base URL, model, API key source, timeout, retries, and response/error normalization.
 - [ ] Implement model routing for roles such as classifier, planner, analyzer, responder, and fallback.
-- [ ] Add local SQLite memory tables for observations, user facts, diagnostic summaries, sensitivity level, TTL, and source metadata.
-- [ ] Add a policy engine that blocks destructive shell commands, UCI mutation, package installation/removal, service restarts, firewall changes, and file deletion by default.
-- [ ] Add audit logs for every request, model call, tool call, policy decision, and memory write.
-- [ ] Add redaction helpers before logging or sending tool output to remote models.
+- [x] Add local SQLite memory tables for observations, user facts, diagnostic summaries, sensitivity level, TTL, and source metadata.
+- [x] Add a policy engine that blocks destructive shell commands, UCI mutation, package installation/removal, service restarts, firewall changes, and file deletion by default.
+- [x] Add audit logs for every request, model call, tool call, policy decision, and memory write.
+- [x] Add redaction helpers before logging or sending tool output to remote models.
 
 LuCI application todo:
 
 - [x] Add an AI Agent menu entry under `luci-app-edgepulse`.
 - [x] Add an interaction page where the user can ask a diagnostic question and see the answer, tool evidence, model used, and policy decisions.
-- [ ] Add a diagnostic shortcut page or mode for common tasks such as WAN down, DNS failure, Wi-Fi instability, high CPU, high memory, and package/service health.
+- [x] Add a diagnostic shortcut page or mode for common tasks such as WAN down, DNS failure, Wi-Fi instability, high CPU, high memory, and package/service health.
 - [x] Extend the settings page with AI agent enable/disable, local-only mode, model provider, remote base URL, model name, API key or API key environment variable, memory toggle, shell toggle, `ubus` toggle, policy profile, and timeout settings.
 - [x] Redact API keys in LuCI and require explicit replacement to change them.
 - [x] Add a status panel showing whether the agent is enabled, whether a model backend is configured, last request status, memory database status, and policy mode.

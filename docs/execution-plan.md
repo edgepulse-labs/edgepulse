@@ -306,9 +306,9 @@ OpenWrt package and build configuration todo:
 - [x] Define package config symbols for AI agent defaults, such as `EDGEPULSE_ENABLE_AI_AGENT`, default model provider, default remote base URL, default model name, default local-only mode, and default policy profile.
 - [x] Avoid baking real secrets into firmware images by default; support a build-time API key placeholder only for development images and prefer runtime UCI or environment-based secret configuration.
 - [x] Decide whether the first package shape is an optional `edgepulse-agent` subpackage or a feature compiled into the existing `edgepulse` package.
-- [ ] Add package dependencies needed by the first agent implementation, such as TLS/HTTP client support, JSON handling, `libuci`, `libubus`, and SQLite memory.
-- [ ] Ensure image builders can select `edgepulse` without AI agent support for low-memory targets.
-- [ ] Document example `.config` entries for enabling the agent in the standalone `edgepulse-openwrt-feed` workflow.
+- [x] Add package dependencies needed by the first agent implementation, such as TLS/HTTP client support, JSON handling, `libuci`, `libubus`, and SQLite memory.
+- [x] Ensure image builders can select `edgepulse` without AI agent support for low-memory targets.
+- [x] Document example `.config` entries for enabling the agent in the standalone `edgepulse-openwrt-feed` workflow.
 
 UCI configuration todo:
 
@@ -326,9 +326,9 @@ Agent runtime implementation todo:
 - [x] Add the first `edgepulse-ctl agent status|diagnose|ask` MVP commands.
 - [x] Implement request context tracking with request ID, user message, selected model, tool call history, compacted observation summary, and final answer.
 - [x] Implement a read-only shell executor with an allowlist, structured argument schemas, timeout, output size limits, exit code capture, and audit logging.
-- [ ] Implement a read-only `ubus` adapter for `system`, `network.interface`, `network.device`, `network.wireless`, `service`, `iwinfo`, and selected status methods.
+- [x] Implement a read-only `ubus` adapter for `system`, `network.interface`, `network.device`, `network.wireless`, `service`, `iwinfo`, and selected status methods.
 - [ ] Implement an OpenAI-compatible model client with configurable base URL, model, API key source, timeout, retries, and response/error normalization.
-- [ ] Implement model routing for roles such as classifier, planner, analyzer, responder, and fallback.
+- [x] Implement model routing for roles such as classifier, planner, analyzer, responder, and fallback.
 - [x] Add local SQLite memory tables for observations, user facts, diagnostic summaries, sensitivity level, TTL, and source metadata.
 - [x] Add a policy engine that blocks destructive shell commands, UCI mutation, package installation/removal, service restarts, firewall changes, and file deletion by default.
 - [x] Add audit logs for every request, model call, tool call, policy decision, and memory write.

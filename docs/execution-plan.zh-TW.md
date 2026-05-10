@@ -306,9 +306,9 @@ OpenWrt package 與 build configuration todo:
 - [x] 定義 AI agent defaults 的 package config symbols，例如 `EDGEPULSE_ENABLE_AI_AGENT`、default model provider、default remote base URL、default model name、default local-only mode 與 default policy profile。
 - [x] 預設不要把真正的 secrets bake 進 firmware images；build-time API key placeholder 僅供 development images 使用，正式使用時優先透過 runtime UCI 或 environment-based secret configuration。
 - [x] 決定第一版 package shape 是 optional `edgepulse-agent` subpackage，或是編進現有 `edgepulse` package 的 feature。
-- [ ] 加入第一版 agent implementation 需要的 package dependencies，例如 TLS/HTTP client support、JSON handling、`libuci`、`libubus` 與 SQLite memory。
-- [ ] 確保 image builders 可以為 low-memory targets 選擇不含 AI agent support 的 `edgepulse`。
-- [ ] 記錄在 standalone `edgepulse-openwrt-feed` workflow 中啟用 agent 的 `.config` 範例。
+- [x] 加入第一版 agent implementation 需要的 package dependencies，例如 TLS/HTTP client support、JSON handling、`libuci`、`libubus` 與 SQLite memory。
+- [x] 確保 image builders 可以為 low-memory targets 選擇不含 AI agent support 的 `edgepulse`。
+- [x] 記錄在 standalone `edgepulse-openwrt-feed` workflow 中啟用 agent 的 `.config` 範例。
 
 UCI configuration todo:
 
@@ -326,9 +326,9 @@ Agent runtime implementation todo:
 - [x] 加入第一版 `edgepulse-ctl agent status|diagnose|ask` MVP commands。
 - [x] 實作 request context tracking，包含 request ID、user message、selected model、tool call history、compacted observation summary 與 final answer。
 - [x] 實作 read-only shell executor，具備 allowlist、structured argument schemas、timeout、output size limits、exit code capture 與 audit logging。
-- [ ] 實作 read-only `ubus` adapter，支援 `system`、`network.interface`、`network.device`、`network.wireless`、`service`、`iwinfo` 與 selected status methods。
+- [x] 實作 read-only `ubus` adapter，支援 `system`、`network.interface`、`network.device`、`network.wireless`、`service`、`iwinfo` 與 selected status methods。
 - [ ] 實作 OpenAI-compatible model client，支援 configurable base URL、model、API key source、timeout、retries 與 response/error normalization。
-- [ ] 實作 model routing，支援 classifier、planner、analyzer、responder 與 fallback 等 roles。
+- [x] 實作 model routing，支援 classifier、planner、analyzer、responder 與 fallback 等 roles。
 - [x] 加入 local SQLite memory tables，儲存 observations、user facts、diagnostic summaries、sensitivity level、TTL 與 source metadata。
 - [x] 加入 policy engine，預設封鎖 destructive shell commands、UCI mutation、package installation/removal、service restarts、firewall changes 與 file deletion。
 - [x] 為每次 request、model call、tool call、policy decision 與 memory write 加入 audit logs。

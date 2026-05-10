@@ -123,6 +123,18 @@ make package/feeds/edgepulse/edgepulse/compile V=s
 make package/feeds/edgepulse/luci-app-edgepulse/compile V=s
 ```
 
+可選的 AI agent package configuration：
+
+```text
+CONFIG_PACKAGE_edgepulse=m
+CONFIG_PACKAGE_luci-app-edgepulse=m
+CONFIG_EDGEPULSE_ENABLE_AI_AGENT=y
+CONFIG_EDGEPULSE_AI_DEFAULT_BASE_URL=""
+CONFIG_EDGEPULSE_AI_DEFAULT_MODEL=""
+```
+
+AI agent runtime 預設仍是停用。使用 remote model routing 前，需在 `/etc/config/edgepulse` 啟用 `config agent 'main'` 並設定 `config model` section。不要把真正的 API keys 放進 firmware images；優先使用 runtime UCI 或 `api_key_env`。
+
 ## Package Split
 
 ### `edgepulse`
@@ -143,6 +155,9 @@ Initial dependencies:
 - `libubox`
 - `libubus`
 - `libblobmsg-json`
+- `ubus`
+- `uclient-fetch`
+- `libustream-mbedtls`
 
 ### `luci-app-edgepulse`
 

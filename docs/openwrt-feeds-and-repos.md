@@ -123,6 +123,18 @@ make package/feeds/edgepulse/edgepulse/compile V=s
 make package/feeds/edgepulse/luci-app-edgepulse/compile V=s
 ```
 
+Optional AI agent package configuration:
+
+```text
+CONFIG_PACKAGE_edgepulse=m
+CONFIG_PACKAGE_luci-app-edgepulse=m
+CONFIG_EDGEPULSE_ENABLE_AI_AGENT=y
+CONFIG_EDGEPULSE_AI_DEFAULT_BASE_URL=""
+CONFIG_EDGEPULSE_AI_DEFAULT_MODEL=""
+```
+
+The AI agent is still disabled at runtime by default. Enable `config agent 'main'` in `/etc/config/edgepulse` and configure a `config model` section before remote model routing is used. Keep real API keys out of firmware images; prefer runtime UCI or `api_key_env`.
+
 ## Package Split
 
 ### `edgepulse`
@@ -143,6 +155,9 @@ Initial dependencies:
 - `libubox`
 - `libubus`
 - `libblobmsg-json`
+- `ubus`
+- `uclient-fetch`
+- `libustream-mbedtls`
 
 ### `luci-app-edgepulse`
 
@@ -228,4 +243,3 @@ The feed plan is acceptable when:
 - `./scripts/feeds install -a -p edgepulse` exposes `edgepulse` and `luci-app-edgepulse`.
 - `make menuconfig` can select both packages.
 - The package build does not require editing OpenWrt core files.
-

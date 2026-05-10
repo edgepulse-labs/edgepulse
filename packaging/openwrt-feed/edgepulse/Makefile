@@ -18,7 +18,7 @@ define Package/edgepulse
   SECTION:=utils
   CATEGORY:=Utilities
   TITLE:=EdgePulse telemetry daemon
-  DEPENDS:=+libsqlite3 +libubox +libubus +libblobmsg-json
+  DEPENDS:=+libsqlite3 +libubox +libubus +libblobmsg-json +EDGEPULSE_ENABLE_AI_AGENT:ubus +EDGEPULSE_ENABLE_AI_AGENT:uclient-fetch +EDGEPULSE_ENABLE_AI_AGENT:libustream-mbedtls
 endef
 
 define Package/edgepulse/config

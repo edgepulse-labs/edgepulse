@@ -56,6 +56,14 @@ struct agent_tool_result {
 	char output[2048];
 };
 
+struct agent_model_request {
+	char route_role[64];
+	char provider[64];
+	char model[128];
+	char endpoint[AGENT_STR_SIZE + 64];
+	char status[64];
+};
+
 static void json_escape(FILE *fp, const char *value)
 {
 	const unsigned char *p = (const unsigned char *)value;
@@ -463,6 +471,18 @@ static int agent_command_allowed(char *const argv[])
 		return argv[1] && strcmp(argv[1], "-a") == 0 && !argv[2];
 	if (strcmp(argv[0], "uptime") == 0)
 		return !argv[1];
+	if (strcmp(argv[0], "ubus") == 0) {
+		if (!argv[1] || strcmp(argv[1], "call") != 0 || !argv[2] || !argv[3])
+			return 0;
+		if (strcmp(argv[2], "system") == 0 &&
+		    (strcmp(argv[3], "board") == 0 || strcmp(argv[3], "info") == 0) &&
+		    !argv[4])
+			return 1;
+		if (strcmp(argv[2], "network.interface") == 0 &&
+		    strcmp(argv[3], "dump") == 0 && !argv[4])
+			return 1;
+		return 0;
+	}
 	return 0;
 }
 
@@ -588,6 +608,61 @@ static void print_agent_tool_json(const struct agent_tool_result *result)
 	       result->exit_code, result->elapsed_ms);
 	print_json_string(result->output);
 	printf(" }");
+}
+
+static void agent_build_model_request(const struct agent_config *agent,
+				      const struct agent_model_config *model,
+				      const char *role,
+				      struct agent_model_request *request)
+{
+	memset(request, 0, sizeof(*request));
+	snprintf(request->route_role, sizeof(request->route_role), "%s", role);
+	snprintf(request->provider, sizeof(request->provider), "%s",
+		 model->name[0] ? model->name : "none");
+	snprintf(request->model, sizeof(request->model), "%s", model->model);
+
+	if (!agent->enabled) {
+		snprintf(request->status, sizeof(request->status), "%s", "agent_disabled");
+		return;
+	}
+	if (agent->local_only) {
+		snprintf(request->status, sizeof(request->status), "%s", "local_only");
+		return;
+	}
+	if (!model->configured) {
+		snprintf(request->status, sizeof(request->status), "%s", "not_configured");
+		return;
+	}
+	if (model->role[0] != '\0' && !strstr(model->role, role)) {
+		snprintf(request->status, sizeof(request->status), "%s", "role_not_matched");
+		return;
+	}
+
+	snprintf(request->endpoint, sizeof(request->endpoint), "%s/chat/completions",
+		 model->base_url);
+	snprintf(request->status, sizeof(request->status), "%s", "ready");
+}
+
+static void print_agent_model_request_json(const struct agent_model_request *request)
+{
+	printf("  \"model_request\": {\n");
+	printf("    \"route_role\": ");
+	print_json_string(request->route_role);
+	printf(",\n");
+	printf("    \"provider\": ");
+	print_json_string(request->provider);
+	printf(",\n");
+	printf("    \"model\": ");
+	print_json_string(request->model);
+	printf(",\n");
+	printf("    \"endpoint\": ");
+	print_json_string(request->endpoint);
+	printf(",\n");
+	printf("    \"api_key\": \"redacted\",\n");
+	printf("    \"status\": ");
+	print_json_string(request->status);
+	printf("\n");
+	printf("  }");
 }
 
 static int print_status(void)
@@ -987,10 +1062,20 @@ static int EDGEPULSE_AGENT_UNUSED print_agent_diagnose(const char *question)
 	char memory_summary[512];
 	struct agent_tool_result uname_result;
 	struct agent_tool_result uptime_result;
+	struct agent_tool_result ubus_board_result;
+	struct agent_tool_result ubus_info_result;
+	struct agent_tool_result ubus_network_result;
+	struct agent_model_request model_request;
 	int have_uname = 0;
 	int have_uptime = 0;
+	int have_ubus_board = 0;
+	int have_ubus_info = 0;
+	int have_ubus_network = 0;
 	char *const uname_argv[] = { "uname", "-a", NULL };
 	char *const uptime_argv[] = { "uptime", NULL };
+	char *const ubus_board_argv[] = { "ubus", "call", "system", "board", NULL };
+	char *const ubus_info_argv[] = { "ubus", "call", "system", "info", NULL };
+	char *const ubus_network_argv[] = { "ubus", "call", "network.interface", "dump", NULL };
 
 	read_agent_config(&agent, &model);
 	model_status = agent_model_status(&agent, &model);
@@ -1010,6 +1095,7 @@ static int EDGEPULSE_AGENT_UNUSED print_agent_diagnose(const char *question)
 	}
 
 	memory_ratio = edgepulse_memory_used_ratio(&snapshot);
+	agent_build_model_request(&agent, &model, "analyzer", &model_request);
 	answer = strcmp(model_status, "configured") == 0 ?
 		"The remote model backend is configured, but this MVP keeps execution local and read-only. The local telemetry snapshot is included for grounded diagnostics." :
 		"The AI agent MVP ran a local read-only diagnostic. Configure and enable a model backend to add remote reasoning; local telemetry and policy findings are included in this response.";
@@ -1038,6 +1124,33 @@ static int EDGEPULSE_AGENT_UNUSED print_agent_diagnose(const char *question)
 		agent_store_audit(agent.db_path, request_id, "tool.shell.uptime",
 				  uptime_result.status);
 	}
+	if (agent.ubus_enabled) {
+		agent_run_read_only_command("ubus.system.board", ubus_board_argv,
+					    agent.tool_timeout_sec,
+					    agent.max_tool_output_bytes,
+					    &ubus_board_result);
+		have_ubus_board = 1;
+		agent_store_audit(agent.db_path, request_id, "tool.ubus.system.board",
+				  ubus_board_result.status);
+		agent_run_read_only_command("ubus.system.info", ubus_info_argv,
+					    agent.tool_timeout_sec,
+					    agent.max_tool_output_bytes,
+					    &ubus_info_result);
+		have_ubus_info = 1;
+		agent_store_audit(agent.db_path, request_id, "tool.ubus.system.info",
+				  ubus_info_result.status);
+		agent_run_read_only_command("ubus.network.interface.dump",
+					    ubus_network_argv,
+					    agent.tool_timeout_sec,
+					    agent.max_tool_output_bytes,
+					    &ubus_network_result);
+		have_ubus_network = 1;
+		agent_store_audit(agent.db_path, request_id,
+				  "tool.ubus.network.interface.dump",
+				  ubus_network_result.status);
+	}
+	agent_store_audit(agent.db_path, request_id, "model.route",
+			  model_request.status);
 	agent_store_audit(agent.db_path, request_id, "policy.read_only",
 			  agent_config_has_warnings(&agent, &model) ?
 			  "Read-only policy active with configuration warnings." :
@@ -1072,8 +1185,22 @@ static int EDGEPULSE_AGENT_UNUSED print_agent_diagnose(const char *question)
 		printf(",\n");
 		print_agent_tool_json(&uptime_result);
 	}
+	if (have_ubus_board) {
+		printf(",\n");
+		print_agent_tool_json(&ubus_board_result);
+	}
+	if (have_ubus_info) {
+		printf(",\n");
+		print_agent_tool_json(&ubus_info_result);
+	}
+	if (have_ubus_network) {
+		printf(",\n");
+		print_agent_tool_json(&ubus_network_result);
+	}
 	printf("\n");
 	printf("  ],\n");
+	print_agent_model_request_json(&model_request);
+	printf(",\n");
 	print_agent_findings(&snapshot, &agent);
 	printf("  \"snapshot\": {\n");
 	printf("    \"uptime_sec\": %.2f,\n", snapshot.uptime_sec);
@@ -1203,7 +1330,7 @@ static int EDGEPULSE_AGENT_UNUSED print_agent_policy(void)
 	print_json_string(agent.policy_profile);
 	printf(",\n");
 	printf("  \"mode\": \"read_only\",\n");
-	printf("  \"allowed_tools\": [\"edgepulse_snapshot\", \"shell.uname\", \"shell.uptime\"],\n");
+	printf("  \"allowed_tools\": [\"edgepulse_snapshot\", \"shell.uname\", \"shell.uptime\", \"ubus.system.board\", \"ubus.system.info\", \"ubus.network.interface.dump\"],\n");
 	printf("  \"blocked_categories\": [\"file_deletion\", \"uci_mutation\", \"service_restart\", \"package_install_remove\", \"firewall_change\", \"arbitrary_shell\"],\n");
 	print_agent_validation(&agent, &model);
 	printf("\n");

@@ -16,6 +16,11 @@ Local C adapter 應負責 router-local policy、allowlists、UCI/ubus access、a
 目前專案狀態：local C adapter 已實作，並已透過 `edgepulse-ctl agent mcp serve`
 在 OpenWrt One 驗證。Rust bridge 不在目前實作 scope 內。
 
+目前 placement 決策：local MCP adapter 保留在 `edgepulse-ctl agent mcp`，長時間
+OpenWrt-local callers 走 `edgepulse.agent` ubus object。暫不拆出獨立
+`edgepulse-mcpd` binary；等 method surface、streaming progress 與 remote bridge
+需求明確後再重新評估。
+
 ## 為什麼先從 C 開始
 
 C runtime 已經和 EdgePulse package 整合，而且已有：
@@ -44,6 +49,15 @@ edgepulse-ctl agent mcp serve
 ```uci
 config agent 'agent'
     option mcp_enabled '0'
+    option mcp_allow_edgepulse_status '1'
+    option mcp_allow_agent_status '1'
+    option mcp_allow_chat_list '1'
+    option mcp_allow_chat_ask '1'
+    option mcp_allow_action_run '1'
+    option mcp_allow_audit_list '1'
+    option mcp_allow_ubus_status_network '1'
+    option mcp_allow_ubus_status_wireless '1'
+    option mcp_allow_uci_get_edgepulse '1'
 ```
 
 第一版 methods：
@@ -143,11 +157,12 @@ C 較適合：
 - [x] 加入 local stdio JSON-RPC mode，支援 `initialize`、`tools/list` 與 `tools/call`。
 - [x] 保留 numeric、string 與 null JSON-RPC request IDs。
 - [x] 在 OpenWrt One 驗證 `tools/list` 與 `tools/call edgepulse.agent.chat.list`。
-- [ ] 加入 long-running local daemon mode，透過 Unix domain socket 或 ubus。
-- [ ] 加入 method-level ACL settings in UCI。
+- [x] 加入 long-running local daemon mode，透過 Unix domain socket 或 ubus。
+- [x] 加入 method-level ACL settings in UCI。
 - [ ] 在 LuCI 加入 local MCP enable 與 exposed methods review controls。
 - [ ] 讓 Rust `openwrt-mcp-server` 呼叫 local C MCP adapter，而不是重複 OpenWrt command logic。
 - [ ] 驗證 Rust remote calls 與 local CLI calls 產生相同 audit records。
+- [x] 決定第一版 local MCP adapter placement：維持在 `edgepulse-ctl agent mcp`，daemon 提供 `edgepulse.agent` ubus local API，不新增 `edgepulse-mcpd`。
 
 ## 長期發展方向
 

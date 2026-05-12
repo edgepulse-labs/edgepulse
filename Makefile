@@ -20,7 +20,7 @@ TEST_SRCS := tests/unit/test_edgepulse.c
 AGENT_TEST_SRCS := tests/unit/test_agent_ctl.c
 MOCK_OPENAI_SERVER_SRCS := tests/integration/mock_openai_server.c
 
-.PHONY: all clean install test integration-agent-model integration-agent-operations openwrt-agent-e2e
+.PHONY: all clean install test integration-agent-model integration-agent-operations integration-agent-mcp integration-agent-shared-transcript integration-agent-local openwrt-agent-e2e
 
 all: $(TARGET) $(CTL_TARGET)
 
@@ -48,6 +48,14 @@ integration-agent-model: $(CTL_TARGET) $(MOCK_OPENAI_SERVER)
 
 integration-agent-operations: $(CTL_TARGET)
 	sh tests/integration/agent_operations_fixture.sh
+
+integration-agent-mcp: $(CTL_TARGET)
+	sh tests/integration/agent_mcp_fixture.sh
+
+integration-agent-shared-transcript: $(CTL_TARGET)
+	sh tests/integration/agent_shared_transcript.sh
+
+integration-agent-local: integration-agent-operations integration-agent-mcp integration-agent-shared-transcript
 
 openwrt-agent-e2e:
 	sh scripts/ai-agent-openwrt-e2e.sh

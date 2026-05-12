@@ -172,11 +172,11 @@ State-changing methods 必須傳入 explicit confirmation，而 EdgePulse policy
 - [x] 加入 UCI defaults：`chat_enabled`、`default_conversation_id`、`mcp_enabled`。
 - [x] 加入 local C MCP stdio adapter，支援 `initialize`、`tools/list` 與 `tools/call`。
 - [x] 在 OpenWrt One 驗證 CLI、LuCI helper 與 MCP 都能看到同一份 conversation history。
-- [ ] 加入 EdgePulse `ubus` object，提供 local agent calls。
+- [x] 加入 EdgePulse `ubus` object，提供 local agent calls。
 - [ ] 加入 LuCI conversation selection 與 operation shortcuts。
-- [ ] 加入 mixed-origin CLI、LuCI、MCP conversation writes 的 end-to-end tests。
+- [x] 加入 mixed-origin CLI、LuCI、MCP conversation writes 的 end-to-end tests。
 - [ ] 若 `openwrt-mcp-server` 重新納入 scope，更新其 executor，改為呼叫 EdgePulse local APIs，而不是 placeholder command execution。
-- [ ] 將任何 Rust bridge 包成或文件化為 optional companion service，而不是 policy authority。
+- [x] 將任何 Rust bridge 包成或文件化為 optional companion service，而不是 policy authority。
 
 ## 建議
 

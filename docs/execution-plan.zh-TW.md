@@ -485,9 +485,9 @@ Chat and MCP todo:
 - [x] Local C MCP stdio server 會保留 JSON-RPC request IDs。
 - [x] 加入 local `edgepulse.agent` ubus object，支援 `status`、`chat.ask`、`chat.list`、`action.run`、`policy.show` 與 `audit.list`。
 - [ ] 加入 LuCI conversation selection 與 action shortcuts。
-- [ ] 加入 CLI、LuCI helper 與 MCP shared transcript behavior 的 automated end-to-end tests。
+- [x] 加入 CLI、LuCI helper 與 MCP shared transcript behavior 的 automated end-to-end tests。
 - [ ] 若 `openwrt-mcp-server` 重新納入 scope，將 JSON-RPC methods map 到 EdgePulse local CLI/ubus calls。
-- [ ] 將任何 Rust bridge 包裝或文件化為 optional companion service，而不是合併進 C daemon。
+- [x] 將任何 Rust bridge 包裝或文件化為 optional companion service，而不是合併進 C daemon。
 
 Reference:
 
@@ -526,11 +526,11 @@ Follow-up todo:
 - [x] 為 local stdio requests 加入 JSON-RPC 2.0 request/response envelope support。
 - [x] 為 local stdio adapter 加入 `initialize`、`tools/list` 與 `tools/call` handling。
 - [x] Response 會保留 numeric、string 與 null JSON-RPC request IDs。
-- [ ] 透過 `ubus` 或 Unix domain socket 加入 long-running local server mode。
-- [ ] 加入 MCP methods 的 UCI method-level ACLs。
+- [x] 透過 `ubus` 或 Unix domain socket 加入 long-running local server mode。
+- [x] 加入 MCP methods 的 UCI method-level ACLs。
 - [ ] 在 LuCI settings 加入 local MCP enablement 與 method exposure review controls。
-- [ ] 為 local C MCP `ubus` 與 `uci` method calls 加入 fixture tests。
-- [ ] Method set 穩定後，決定 local C MCP adapter 要留在 `edgepulse-ctl`、`edgepulse agent`，或拆成獨立 `edgepulse-mcpd` binary。
+- [x] 為 local C MCP `ubus` 與 `uci` method calls 加入 fixture tests。
+- [x] Method set 穩定後，決定 local C MCP adapter 要留在 `edgepulse-ctl`、`edgepulse agent`，或拆成獨立 `edgepulse-mcpd` binary。
 
 Reference:
 

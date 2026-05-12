@@ -37,6 +37,15 @@ struct agent_config {
 	int mcp_enabled;
 	int allow_reconnect_wan;
 	int allow_wifi_set;
+	int mcp_allow_edgepulse_status;
+	int mcp_allow_agent_status;
+	int mcp_allow_chat_list;
+	int mcp_allow_chat_ask;
+	int mcp_allow_action_run;
+	int mcp_allow_audit_list;
+	int mcp_allow_ubus_status_network;
+	int mcp_allow_ubus_status_wireless;
+	int mcp_allow_uci_get_edgepulse;
 	int request_timeout_sec;
 	int heartbeat_interval_sec;
 	int tool_timeout_sec;
@@ -284,6 +293,15 @@ static void init_agent_config(struct agent_config *agent,
 	agent->mcp_enabled = 0;
 	agent->allow_reconnect_wan = 1;
 	agent->allow_wifi_set = 1;
+	agent->mcp_allow_edgepulse_status = 1;
+	agent->mcp_allow_agent_status = 1;
+	agent->mcp_allow_chat_list = 1;
+	agent->mcp_allow_chat_ask = 1;
+	agent->mcp_allow_action_run = 1;
+	agent->mcp_allow_audit_list = 1;
+	agent->mcp_allow_ubus_status_network = 1;
+	agent->mcp_allow_ubus_status_wireless = 1;
+	agent->mcp_allow_uci_get_edgepulse = 1;
 	agent->request_timeout_sec = 60;
 	agent->heartbeat_interval_sec = 60;
 	agent->tool_timeout_sec = 5;
@@ -406,6 +424,24 @@ static int read_agent_config_models(struct agent_config *agent,
 				agent->allow_reconnect_wan = parse_bool_value(value, agent->allow_reconnect_wan);
 			else if (strcmp(key, "allow_wifi_set") == 0)
 				agent->allow_wifi_set = parse_bool_value(value, agent->allow_wifi_set);
+			else if (strcmp(key, "mcp_allow_edgepulse_status") == 0)
+				agent->mcp_allow_edgepulse_status = parse_bool_value(value, agent->mcp_allow_edgepulse_status);
+			else if (strcmp(key, "mcp_allow_agent_status") == 0)
+				agent->mcp_allow_agent_status = parse_bool_value(value, agent->mcp_allow_agent_status);
+			else if (strcmp(key, "mcp_allow_chat_list") == 0)
+				agent->mcp_allow_chat_list = parse_bool_value(value, agent->mcp_allow_chat_list);
+			else if (strcmp(key, "mcp_allow_chat_ask") == 0)
+				agent->mcp_allow_chat_ask = parse_bool_value(value, agent->mcp_allow_chat_ask);
+			else if (strcmp(key, "mcp_allow_action_run") == 0)
+				agent->mcp_allow_action_run = parse_bool_value(value, agent->mcp_allow_action_run);
+			else if (strcmp(key, "mcp_allow_audit_list") == 0)
+				agent->mcp_allow_audit_list = parse_bool_value(value, agent->mcp_allow_audit_list);
+			else if (strcmp(key, "mcp_allow_ubus_status_network") == 0)
+				agent->mcp_allow_ubus_status_network = parse_bool_value(value, agent->mcp_allow_ubus_status_network);
+			else if (strcmp(key, "mcp_allow_ubus_status_wireless") == 0)
+				agent->mcp_allow_ubus_status_wireless = parse_bool_value(value, agent->mcp_allow_ubus_status_wireless);
+			else if (strcmp(key, "mcp_allow_uci_get_edgepulse") == 0)
+				agent->mcp_allow_uci_get_edgepulse = parse_bool_value(value, agent->mcp_allow_uci_get_edgepulse);
 			else if (strcmp(key, "request_timeout_sec") == 0)
 				agent->request_timeout_sec = parse_int_value(value, agent->request_timeout_sec);
 			else if (strcmp(key, "heartbeat_interval_sec") == 0)
@@ -1916,6 +1952,17 @@ static int EDGEPULSE_AGENT_UNUSED print_agent_status(void)
 	       agent.allow_reconnect_wan ? "true" : "false");
 	printf("    \"allow_wifi_set\": %s,\n",
 	       agent.allow_wifi_set ? "true" : "false");
+	printf("    \"mcp_method_acl\": {\n");
+	printf("      \"edgepulse.status\": %s,\n", agent.mcp_allow_edgepulse_status ? "true" : "false");
+	printf("      \"edgepulse.agent.status\": %s,\n", agent.mcp_allow_agent_status ? "true" : "false");
+	printf("      \"edgepulse.agent.chat.list\": %s,\n", agent.mcp_allow_chat_list ? "true" : "false");
+	printf("      \"edgepulse.agent.chat.ask\": %s,\n", agent.mcp_allow_chat_ask ? "true" : "false");
+	printf("      \"edgepulse.agent.action.run\": %s,\n", agent.mcp_allow_action_run ? "true" : "false");
+	printf("      \"edgepulse.agent.audit.list\": %s,\n", agent.mcp_allow_audit_list ? "true" : "false");
+	printf("      \"edgepulse.ubus.status.network\": %s,\n", agent.mcp_allow_ubus_status_network ? "true" : "false");
+	printf("      \"edgepulse.ubus.status.wireless\": %s,\n", agent.mcp_allow_ubus_status_wireless ? "true" : "false");
+	printf("      \"edgepulse.uci.get.edgepulse\": %s\n", agent.mcp_allow_uci_get_edgepulse ? "true" : "false");
+	printf("    },\n");
 	printf("    \"policy_profile\": ");
 	print_json_string(agent.policy_profile);
 	printf(",\n");
@@ -3103,6 +3150,40 @@ static int EDGEPULSE_AGENT_UNUSED print_agent_policy(void)
 	return 0;
 }
 
+static int agent_mcp_method_allowed(const struct agent_config *agent,
+				    const char *method)
+{
+	if (strcmp(method, "edgepulse.status") == 0)
+		return agent->mcp_allow_edgepulse_status;
+	if (strcmp(method, "edgepulse.agent.status") == 0)
+		return agent->mcp_allow_agent_status;
+	if (strcmp(method, "edgepulse.agent.chat.list") == 0)
+		return agent->mcp_allow_chat_list;
+	if (strcmp(method, "edgepulse.agent.chat.ask") == 0)
+		return agent->mcp_allow_chat_ask;
+	if (strcmp(method, "edgepulse.agent.action.run") == 0)
+		return agent->mcp_allow_action_run;
+	if (strcmp(method, "edgepulse.agent.audit.list") == 0)
+		return agent->mcp_allow_audit_list;
+	if (strcmp(method, "edgepulse.ubus.status.network") == 0)
+		return agent->mcp_allow_ubus_status_network;
+	if (strcmp(method, "edgepulse.ubus.status.wireless") == 0)
+		return agent->mcp_allow_ubus_status_wireless;
+	if (strcmp(method, "edgepulse.uci.get.edgepulse") == 0)
+		return agent->mcp_allow_uci_get_edgepulse;
+	return 0;
+}
+
+static void print_agent_mcp_method_json(const struct agent_config *agent,
+					const char *name, const char *mode)
+{
+	printf("    { \"name\": ");
+	print_json_string(name);
+	printf(", \"mode\": ");
+	print_json_string(mode);
+	printf(", \"allowed\": %s }", agent_mcp_method_allowed(agent, name) ? "true" : "false");
+}
+
 static int EDGEPULSE_AGENT_UNUSED print_agent_mcp_methods(void)
 {
 	struct agent_config agent;
@@ -3113,32 +3194,68 @@ static int EDGEPULSE_AGENT_UNUSED print_agent_mcp_methods(void)
 	printf("  \"mcp_enabled\": %s,\n", agent.mcp_enabled ? "true" : "false");
 	printf("  \"transport\": \"local_cli_adapter\",\n");
 	printf("  \"methods\": [\n");
-	printf("    { \"name\": \"edgepulse.status\", \"mode\": \"read_only\" },\n");
-	printf("    { \"name\": \"edgepulse.agent.status\", \"mode\": \"read_only\" },\n");
-	printf("    { \"name\": \"edgepulse.agent.chat.list\", \"mode\": \"read_only\" },\n");
-	printf("    { \"name\": \"edgepulse.agent.chat.ask\", \"mode\": \"agent_request\" },\n");
-	printf("    { \"name\": \"edgepulse.agent.action.run\", \"mode\": \"policy_gated\" },\n");
-	printf("    { \"name\": \"edgepulse.agent.audit.list\", \"mode\": \"read_only\" },\n");
-	printf("    { \"name\": \"edgepulse.ubus.status.network\", \"mode\": \"read_only\" },\n");
-	printf("    { \"name\": \"edgepulse.ubus.status.wireless\", \"mode\": \"read_only\" },\n");
-	printf("    { \"name\": \"edgepulse.uci.get.edgepulse\", \"mode\": \"read_only\" }\n");
+	print_agent_mcp_method_json(&agent, "edgepulse.status", "read_only");
+	printf(",\n");
+	print_agent_mcp_method_json(&agent, "edgepulse.agent.status", "read_only");
+	printf(",\n");
+	print_agent_mcp_method_json(&agent, "edgepulse.agent.chat.list", "read_only");
+	printf(",\n");
+	print_agent_mcp_method_json(&agent, "edgepulse.agent.chat.ask", "agent_request");
+	printf(",\n");
+	print_agent_mcp_method_json(&agent, "edgepulse.agent.action.run", "policy_gated");
+	printf(",\n");
+	print_agent_mcp_method_json(&agent, "edgepulse.agent.audit.list", "read_only");
+	printf(",\n");
+	print_agent_mcp_method_json(&agent, "edgepulse.ubus.status.network", "read_only");
+	printf(",\n");
+	print_agent_mcp_method_json(&agent, "edgepulse.ubus.status.wireless", "read_only");
+	printf(",\n");
+	print_agent_mcp_method_json(&agent, "edgepulse.uci.get.edgepulse", "read_only");
+	printf("\n");
 	printf("  ]\n");
 	printf("}\n");
 	return 0;
 }
 
+static void print_agent_mcp_tool_entry(const char *name, const char *description,
+				       int *first)
+{
+	if (!*first)
+		printf(",");
+	printf("{\"name\":");
+	print_json_string(name);
+	printf(",\"description\":");
+	print_json_string(description);
+	printf("}");
+	*first = 0;
+}
+
 static void print_agent_mcp_tools_array(void)
 {
+	struct agent_config agent;
+	struct agent_model_config model;
+	int first = 1;
+
+	read_agent_config(&agent, &model);
 	printf("[");
-	printf("{\"name\":\"edgepulse.status\",\"description\":\"Read EdgePulse telemetry status\"},");
-	printf("{\"name\":\"edgepulse.agent.status\",\"description\":\"Read agent, model, and policy status\"},");
-	printf("{\"name\":\"edgepulse.agent.chat.list\",\"description\":\"Read shared conversation messages\"},");
-	printf("{\"name\":\"edgepulse.agent.chat.ask\",\"description\":\"Send a message to the EdgePulse AI Agent\"},");
-	printf("{\"name\":\"edgepulse.agent.action.run\",\"description\":\"Run a policy-gated named EdgePulse action\"},");
-	printf("{\"name\":\"edgepulse.agent.audit.list\",\"description\":\"Read recent EdgePulse agent audit events\"},");
-	printf("{\"name\":\"edgepulse.ubus.status.network\",\"description\":\"Read OpenWrt network interface status through allowed ubus method\"},");
-	printf("{\"name\":\"edgepulse.ubus.status.wireless\",\"description\":\"Read OpenWrt wireless status through allowed ubus method\"},");
-	printf("{\"name\":\"edgepulse.uci.get.edgepulse\",\"description\":\"Read EdgePulse UCI configuration\"}");
+	if (agent_mcp_method_allowed(&agent, "edgepulse.status"))
+		print_agent_mcp_tool_entry("edgepulse.status", "Read EdgePulse telemetry status", &first);
+	if (agent_mcp_method_allowed(&agent, "edgepulse.agent.status"))
+		print_agent_mcp_tool_entry("edgepulse.agent.status", "Read agent, model, and policy status", &first);
+	if (agent_mcp_method_allowed(&agent, "edgepulse.agent.chat.list"))
+		print_agent_mcp_tool_entry("edgepulse.agent.chat.list", "Read shared conversation messages", &first);
+	if (agent_mcp_method_allowed(&agent, "edgepulse.agent.chat.ask"))
+		print_agent_mcp_tool_entry("edgepulse.agent.chat.ask", "Send a message to the EdgePulse AI Agent", &first);
+	if (agent_mcp_method_allowed(&agent, "edgepulse.agent.action.run"))
+		print_agent_mcp_tool_entry("edgepulse.agent.action.run", "Run a policy-gated named EdgePulse action", &first);
+	if (agent_mcp_method_allowed(&agent, "edgepulse.agent.audit.list"))
+		print_agent_mcp_tool_entry("edgepulse.agent.audit.list", "Read recent EdgePulse agent audit events", &first);
+	if (agent_mcp_method_allowed(&agent, "edgepulse.ubus.status.network"))
+		print_agent_mcp_tool_entry("edgepulse.ubus.status.network", "Read OpenWrt network interface status through allowed ubus method", &first);
+	if (agent_mcp_method_allowed(&agent, "edgepulse.ubus.status.wireless"))
+		print_agent_mcp_tool_entry("edgepulse.ubus.status.wireless", "Read OpenWrt wireless status through allowed ubus method", &first);
+	if (agent_mcp_method_allowed(&agent, "edgepulse.uci.get.edgepulse"))
+		print_agent_mcp_tool_entry("edgepulse.uci.get.edgepulse", "Read EdgePulse UCI configuration", &first);
 	printf("]");
 }
 
@@ -3156,6 +3273,12 @@ static int print_agent_mcp_tool_call(const char *method, const char *tool_name,
 		printf("{ \"status\": \"disabled\", \"method\": ");
 		print_json_string(method);
 		printf(", \"answer\": \"EdgePulse local C MCP adapter is disabled by edgepulse.agent.mcp_enabled.\" }\n");
+		return 0;
+	}
+	if (!agent_mcp_method_allowed(&agent, method)) {
+		printf("{ \"status\": \"disabled_by_policy\", \"method\": ");
+		print_json_string(method);
+		printf(", \"answer\": \"This MCP method is disabled by EdgePulse UCI method-level ACLs.\" }\n");
 		return 0;
 	}
 
@@ -3199,6 +3322,12 @@ static int EDGEPULSE_AGENT_UNUSED handle_agent_mcp_call(int argc, char **argv)
 		printf("{ \"status\": \"disabled\", \"method\": ");
 		print_json_string(method);
 		printf(", \"answer\": \"EdgePulse local C MCP adapter is disabled by edgepulse.agent.mcp_enabled.\" }\n");
+		return 0;
+	}
+	if (!agent_mcp_method_allowed(&agent, method)) {
+		printf("{ \"status\": \"disabled_by_policy\", \"method\": ");
+		print_json_string(method);
+		printf(", \"answer\": \"This MCP method is disabled by EdgePulse UCI method-level ACLs.\" }\n");
 		return 0;
 	}
 

@@ -17,6 +17,12 @@ Current project status: the local C adapter is implemented and validated on
 OpenWrt One through `edgepulse-ctl agent mcp serve`. The Rust bridge is not in
 the current implementation scope.
 
+Current placement decision: keep the local MCP adapter in
+`edgepulse-ctl agent mcp`, and use the `edgepulse.agent` ubus object for
+long-running OpenWrt-local callers. Do not split out a separate
+`edgepulse-mcpd` binary yet; revisit that after the method surface, streaming
+progress, and remote bridge requirements are clearer.
+
 ## Why Start With C
 
 The C runtime is already packaged with EdgePulse and already has:
@@ -45,6 +51,15 @@ It is controlled by:
 ```uci
 config agent 'agent'
     option mcp_enabled '0'
+    option mcp_allow_edgepulse_status '1'
+    option mcp_allow_agent_status '1'
+    option mcp_allow_chat_list '1'
+    option mcp_allow_chat_ask '1'
+    option mcp_allow_action_run '1'
+    option mcp_allow_audit_list '1'
+    option mcp_allow_ubus_status_network '1'
+    option mcp_allow_ubus_status_wireless '1'
+    option mcp_allow_uci_get_edgepulse '1'
 ```
 
 Supported first methods:
@@ -144,11 +159,12 @@ The key rule: remote tools must not bypass EdgePulse local policy. Even if Rust 
 - [x] Add local stdio JSON-RPC mode with `initialize`, `tools/list`, and `tools/call`.
 - [x] Preserve JSON-RPC request IDs for numeric, string, and null IDs.
 - [x] Validate `tools/list` and `tools/call edgepulse.agent.chat.list` on OpenWrt One.
-- [ ] Add a long-running local daemon mode over Unix domain socket or ubus.
-- [ ] Add method-level ACL settings in UCI.
+- [x] Add a long-running local daemon mode over Unix domain socket or ubus.
+- [x] Add method-level ACL settings in UCI.
 - [ ] Add LuCI controls for enabling local MCP and reviewing exposed methods.
 - [ ] Teach Rust `openwrt-mcp-server` to call the local C MCP adapter instead of duplicating OpenWrt command logic.
 - [ ] Validate that Rust remote calls and local CLI calls produce identical audit records.
+- [x] Decide first-pass local MCP adapter placement: keep it in `edgepulse-ctl agent mcp`, expose daemon-local API through `edgepulse.agent` ubus, and do not add `edgepulse-mcpd`.
 
 ## Longer-Term Development Direction
 

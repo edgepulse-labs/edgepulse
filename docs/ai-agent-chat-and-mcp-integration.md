@@ -172,11 +172,11 @@ For state-changing methods, the MCP bridge must pass explicit confirmation and t
 - [x] Add UCI defaults for `chat_enabled`, `default_conversation_id`, and `mcp_enabled`.
 - [x] Add a local C MCP stdio adapter with `initialize`, `tools/list`, and `tools/call`.
 - [x] Validate that CLI, LuCI helper, and MCP can see the same conversation history on OpenWrt One.
-- [ ] Add an EdgePulse `ubus` object for local agent calls.
+- [x] Add an EdgePulse `ubus` object for local agent calls.
 - [ ] Add LuCI conversation selection and operation shortcuts.
-- [ ] Add end-to-end tests for mixed-origin CLI, LuCI, and MCP conversation writes.
+- [x] Add end-to-end tests for mixed-origin CLI, LuCI, and MCP conversation writes.
 - [ ] If `openwrt-mcp-server` returns to scope, update its executor to call EdgePulse local APIs instead of placeholder command execution.
-- [ ] Package or document any Rust bridge as an optional companion service, not as the policy authority.
+- [x] Package or document any Rust bridge as an optional companion service, not as the policy authority.
 
 ## Recommendation
 

@@ -160,6 +160,9 @@ static void test_agent_uci_parsing(void)
 	      " option mcp_enabled '1'\n"
 	      " option allow_reconnect_wan '0'\n"
 	      " option allow_wifi_set '0'\n"
+	      " option mcp_allow_edgepulse_status '0'\n"
+	      " option mcp_allow_chat_ask '0'\n"
+	      " option mcp_allow_uci_get_edgepulse '0'\n"
 	      " option request_timeout_sec '42'\n"
 	      " option heartbeat_interval_sec '7'\n"
 	      " option tool_timeout_sec '3'\n"
@@ -215,6 +218,10 @@ static void test_agent_uci_parsing(void)
 	check_int("agent mcp parse", agent.mcp_enabled, 1);
 	check_int("agent reconnect permission parse", agent.allow_reconnect_wan, 0);
 	check_int("agent wifi permission parse", agent.allow_wifi_set, 0);
+	check_int("mcp status acl parse", agent.mcp_allow_edgepulse_status, 0);
+	check_int("mcp chat ask acl parse", agent.mcp_allow_chat_ask, 0);
+	check_int("mcp uci acl parse", agent.mcp_allow_uci_get_edgepulse, 0);
+	check_int("mcp agent status acl default", agent.mcp_allow_agent_status, 1);
 	check_string("agent conversation parse", agent.default_conversation_id, "ops");
 	check_int("agent request timeout parse", agent.request_timeout_sec, 42);
 	check_int("agent heartbeat parse", agent.heartbeat_interval_sec, 7);
@@ -326,6 +333,13 @@ static void test_agent_validation_warnings(void)
 	check_int("operator policy valid", agent_config_has_warnings(&agent, &model), 0);
 	check_int("operator policy can mutate", agent_policy_allows_mutation(&agent), 1);
 	snprintf(agent.policy_profile, sizeof(agent.policy_profile), "%s", "read_only");
+	check_int("default mcp method allowed",
+		  agent_mcp_method_allowed(&agent, "edgepulse.agent.status"), 1);
+	agent.mcp_allow_agent_status = 0;
+	check_int("disabled mcp method blocked",
+		  agent_mcp_method_allowed(&agent, "edgepulse.agent.status"), 0);
+	check_int("unknown mcp method blocked",
+		  agent_mcp_method_allowed(&agent, "edgepulse.unknown"), 0);
 
 	snprintf(model.base_url, sizeof(model.base_url), "%s", "http://example.test/v1");
 	check_int("remote http warns", agent_config_has_warnings(&agent, &model), 1);

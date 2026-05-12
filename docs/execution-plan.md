@@ -486,9 +486,9 @@ Chat and MCP todo:
 - [x] Preserve JSON-RPC request IDs in the local C MCP stdio server.
 - [x] Add a local `edgepulse.agent` ubus object for `status`, `chat.ask`, `chat.list`, `action.run`, `policy.show`, and `audit.list`.
 - [ ] Add LuCI conversation selection and action shortcuts.
-- [ ] Add automated end-to-end tests for CLI, LuCI helper, and MCP shared transcript behavior.
+- [x] Add automated end-to-end tests for CLI, LuCI helper, and MCP shared transcript behavior.
 - [ ] If `openwrt-mcp-server` returns to scope, map JSON-RPC methods to EdgePulse local CLI/ubus calls.
-- [ ] Package or document any Rust bridge as an optional companion service instead of merging it into the C daemon.
+- [x] Package or document any Rust bridge as an optional companion service instead of merging it into the C daemon.
 
 Reference:
 
@@ -527,11 +527,11 @@ Follow-up todo:
 - [x] Add JSON-RPC 2.0 request/response envelope support for local stdio requests.
 - [x] Add `initialize`, `tools/list`, and `tools/call` handling for the local stdio adapter.
 - [x] Preserve numeric, string, and null JSON-RPC request IDs in responses.
-- [ ] Add a long-running local server mode through `ubus` or a Unix domain socket.
-- [ ] Add UCI method-level ACLs for MCP methods.
+- [x] Add a long-running local server mode through `ubus` or a Unix domain socket.
+- [x] Add UCI method-level ACLs for MCP methods.
 - [ ] Add LuCI settings controls for local MCP enablement and method exposure review.
-- [ ] Add fixture tests for local C MCP `ubus` and `uci` method calls.
-- [ ] Decide whether the local C MCP adapter should live in `edgepulse-ctl`, `edgepulse agent`, or a separate `edgepulse-mcpd` binary after the method set stabilizes.
+- [x] Add fixture tests for local C MCP `ubus` and `uci` method calls.
+- [x] Decide whether the local C MCP adapter should live in `edgepulse-ctl`, `edgepulse agent`, or a separate `edgepulse-mcpd` binary after the method set stabilizes.
 
 Reference:
 

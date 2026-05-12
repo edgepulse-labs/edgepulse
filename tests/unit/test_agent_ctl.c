@@ -49,6 +49,8 @@ static void test_agent_policy_allowlist(void)
 	char *const wireless_ok[] = { "ubus", "call", "network.wireless", "status", NULL };
 	char *const logread_ok[] = { "logread", "-l", "80", NULL };
 	char *const logread_denied[] = { "logread", "-f", NULL };
+	char *const ping_ip_ok[] = { "ping", "-c", "1", "-W", "2", "1.1.1.1", NULL };
+	char *const ping_denied[] = { "ping", "-c", "3", "1.1.1.1", NULL };
 	char *const uci_show_ok[] = { "uci", "show", "edgepulse", NULL };
 	char *const uci_show_denied[] = { "uci", "show", "wireless", NULL };
 	char *const ifup_wan_ok[] = { "ifup", "wan", NULL };
@@ -65,6 +67,8 @@ static void test_agent_policy_allowlist(void)
 	check_int("allow ubus wireless status", agent_command_allowed(wireless_ok), 1);
 	check_int("allow bounded logread", agent_command_allowed(logread_ok), 1);
 	check_int("deny streaming logread", agent_command_allowed(logread_denied), 0);
+	check_int("allow bounded ping", agent_command_allowed(ping_ip_ok), 1);
+	check_int("deny arbitrary ping", agent_command_allowed(ping_denied), 0);
 	check_int("allow edgepulse uci read", agent_command_allowed(uci_show_ok), 1);
 	check_int("deny arbitrary uci read", agent_command_allowed(uci_show_denied), 0);
 	check_int("deny ubus service restart", agent_command_allowed(ubus_denied), 0);
@@ -154,6 +158,8 @@ static void test_agent_uci_parsing(void)
 	      " option chat_enabled '1'\n"
 	      " option default_conversation_id 'ops'\n"
 	      " option mcp_enabled '1'\n"
+	      " option allow_reconnect_wan '0'\n"
+	      " option allow_wifi_set '0'\n"
 	      " option request_timeout_sec '42'\n"
 	      " option heartbeat_interval_sec '7'\n"
 	      " option tool_timeout_sec '3'\n"
@@ -207,6 +213,8 @@ static void test_agent_uci_parsing(void)
 	check_int("agent ubus parse", agent.ubus_enabled, 0);
 	check_int("agent chat parse", agent.chat_enabled, 1);
 	check_int("agent mcp parse", agent.mcp_enabled, 1);
+	check_int("agent reconnect permission parse", agent.allow_reconnect_wan, 0);
+	check_int("agent wifi permission parse", agent.allow_wifi_set, 0);
 	check_string("agent conversation parse", agent.default_conversation_id, "ops");
 	check_int("agent request timeout parse", agent.request_timeout_sec, 42);
 	check_int("agent heartbeat parse", agent.heartbeat_interval_sec, 7);
@@ -323,6 +331,38 @@ static void test_agent_validation_warnings(void)
 	check_int("remote http warns", agent_config_has_warnings(&agent, &model), 1);
 }
 
+static void test_agent_intent_and_redaction(void)
+{
+	char redacted[256];
+
+	check_string("classify zh wifi status",
+		     agent_classify_intent("Wi-Fi 有開嗎？"), "wifi-status");
+	check_string("classify logs",
+		     agent_classify_intent("show recent abnormal logs"), "logs-recent");
+	check_string("classify reconnect",
+		     agent_classify_intent("幫我重新撥接網路"), "reconnect-wan");
+	check_string("classify status",
+		     agent_classify_intent("router health status"), "status");
+	check_string("classify unknown",
+		     agent_classify_intent("tell me a short joke"), NULL);
+
+	redact_wifi_keys("wireless.@wifi-iface[0].key=secret-pass\nok",
+			 redacted, sizeof(redacted));
+	check_contains("redact uci key", redacted, "key=redacted");
+	if (strstr(redacted, "secret-pass")) {
+		fprintf(stderr, "FAIL redact uci key secret remained: %s\n", redacted);
+		failures++;
+	}
+
+	redact_wifi_keys("{\"key\":\"secret-pass\",\"ssid\":\"EdgePulse\"}",
+			 redacted, sizeof(redacted));
+	check_contains("redact json key", redacted, "key=redacted");
+	if (strstr(redacted, "secret-pass")) {
+		fprintf(stderr, "FAIL redact json key secret remained: %s\n", redacted);
+		failures++;
+	}
+}
+
 static void test_agent_conversation_storage(void)
 {
 	const char *path = "/tmp/edgepulse-agent-chat-test.db";
@@ -400,6 +440,7 @@ int main(void)
 	test_agent_uci_parsing();
 	test_agent_model_request_and_payload();
 	test_agent_validation_warnings();
+	test_agent_intent_and_redaction();
 	test_agent_conversation_storage();
 	test_agent_mcp_json_helpers();
 

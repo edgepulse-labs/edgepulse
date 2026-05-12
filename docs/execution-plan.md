@@ -448,11 +448,11 @@ Operations todo:
 - [x] Add unit coverage for read-only and mutation allowlist decisions.
 - [x] Document user intent scenarios, expected behavior, CLI paths, implementation plan, and safety rules.
 - [ ] Add LuCI operation controls that call the same `agent action` path.
-- [ ] Add a small Chinese/English intent classifier that maps common requests to `status`, `wifi-status`, `logs-recent`, `reconnect-wan`, and `wifi-set`.
-- [ ] Redact Wi-Fi keys from action output and audit details before exposing them through LuCI or syslog.
-- [ ] Add post-action verification for WAN IP, DNS reachability, Wi-Fi radio up/down state, and associated clients.
-- [ ] Add fixture integration tests for `ubus`, `logread`, `uci`, `ifdown`, `ifup`, and `wifi`.
-- [ ] Add per-action permission switches so deployments can allow WAN reconnect without enabling Wi-Fi mutation.
+- [x] Add a small Chinese/English intent classifier that maps common requests to `status`, `wifi-status`, `logs-recent`, `reconnect-wan`, and `wifi-set`.
+- [x] Redact Wi-Fi keys from action output and audit details before exposing them through LuCI or syslog.
+- [x] Add post-action verification for WAN IP, DNS reachability, Wi-Fi radio up/down state, and associated clients.
+- [x] Add fixture integration tests for `ubus`, `logread`, `uci`, `ifdown`, `ifup`, and `wifi`.
+- [x] Add per-action permission switches so deployments can allow WAN reconnect without enabling Wi-Fi mutation.
 
 Reference:
 
@@ -484,7 +484,7 @@ Chat and MCP todo:
 - [x] Add UCI defaults for `chat_enabled`, `default_conversation_id`, and `mcp_enabled`.
 - [x] Validate that CLI, LuCI helper, and MCP can see the same conversation transcript after mixed-origin reads on OpenWrt One.
 - [x] Preserve JSON-RPC request IDs in the local C MCP stdio server.
-- [ ] Add a local `edgepulse.agent` ubus object for `status`, `chat.ask`, `chat.list`, `action.run`, `policy.show`, and `audit.list`.
+- [x] Add a local `edgepulse.agent` ubus object for `status`, `chat.ask`, `chat.list`, `action.run`, `policy.show`, and `audit.list`.
 - [ ] Add LuCI conversation selection and action shortcuts.
 - [ ] Add automated end-to-end tests for CLI, LuCI helper, and MCP shared transcript behavior.
 - [ ] If `openwrt-mcp-server` returns to scope, map JSON-RPC methods to EdgePulse local CLI/ubus calls.

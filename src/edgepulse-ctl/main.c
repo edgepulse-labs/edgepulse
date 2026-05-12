@@ -35,6 +35,8 @@ struct agent_config {
 	int ubus_enabled;
 	int chat_enabled;
 	int mcp_enabled;
+	int allow_reconnect_wan;
+	int allow_wifi_set;
 	int request_timeout_sec;
 	int heartbeat_interval_sec;
 	int tool_timeout_sec;
@@ -125,6 +127,65 @@ static void print_json_string(const char *value)
 	putchar('"');
 	json_escape(stdout, value ? value : "");
 	putchar('"');
+}
+
+static int starts_sensitive_token(const char *value)
+{
+	return strncmp(value, "key=", 4) == 0 ||
+		strncmp(value, "option key", 10) == 0 ||
+		strncmp(value, "\"key\"", 5) == 0 ||
+		strncmp(value, "'key'", 5) == 0 ||
+		strncmp(value, "wireless.@wifi-iface[0].key=", 29) == 0;
+}
+
+static void redact_wifi_keys(const char *input, char *out, size_t out_size)
+{
+	const char *p = input ? input : "";
+	size_t used = 0;
+
+	if (!out || out_size == 0)
+		return;
+
+	while (*p && used + 1 < out_size) {
+		if (starts_sensitive_token(p)) {
+			const char *end = p;
+			int written;
+			while (*end && *end != '\n' && *end != '\r' &&
+			       *end != ',' && *end != '}')
+				end++;
+			written = snprintf(out + used, out_size - used, "%s",
+					   "key=redacted");
+			if (written < 0)
+				break;
+			if ((size_t)written >= out_size - used) {
+				used = out_size - 1;
+				break;
+			}
+			used += (size_t)written;
+			p = end;
+			continue;
+		}
+		if (strncmp(p, "\\\"key\\\"", 7) == 0) {
+			const char *end = p;
+			int written;
+			while (*end && *end != ',' && *end != '}' &&
+			       *end != '\n' && *end != '\r')
+				end++;
+			written = snprintf(out + used, out_size - used, "%s",
+					   "\\\"key\\\":\\\"redacted\\\"");
+			if (written < 0)
+				break;
+			if ((size_t)written >= out_size - used) {
+				used = out_size - 1;
+				break;
+			}
+			used += (size_t)written;
+			p = end;
+			continue;
+		}
+		out[used++] = *p++;
+	}
+	out[used] = '\0';
 }
 
 #ifdef EDGEPULSE_ENABLE_AI_AGENT
@@ -221,6 +282,8 @@ static void init_agent_config(struct agent_config *agent,
 	agent->ubus_enabled = 1;
 	agent->chat_enabled = 1;
 	agent->mcp_enabled = 0;
+	agent->allow_reconnect_wan = 1;
+	agent->allow_wifi_set = 1;
 	agent->request_timeout_sec = 60;
 	agent->heartbeat_interval_sec = 60;
 	agent->tool_timeout_sec = 5;
@@ -339,6 +402,10 @@ static int read_agent_config_models(struct agent_config *agent,
 				agent->chat_enabled = parse_bool_value(value, agent->chat_enabled);
 			else if (strcmp(key, "mcp_enabled") == 0)
 				agent->mcp_enabled = parse_bool_value(value, agent->mcp_enabled);
+			else if (strcmp(key, "allow_reconnect_wan") == 0)
+				agent->allow_reconnect_wan = parse_bool_value(value, agent->allow_reconnect_wan);
+			else if (strcmp(key, "allow_wifi_set") == 0)
+				agent->allow_wifi_set = parse_bool_value(value, agent->allow_wifi_set);
 			else if (strcmp(key, "request_timeout_sec") == 0)
 				agent->request_timeout_sec = parse_int_value(value, agent->request_timeout_sec);
 			else if (strcmp(key, "heartbeat_interval_sec") == 0)
@@ -702,6 +769,15 @@ static int agent_command_allowed(char *const argv[])
 		}
 		return 0;
 	}
+	if (strcmp(argv[0], "ping") == 0)
+		return argv[1] && strcmp(argv[1], "-c") == 0 &&
+			argv[2] && strcmp(argv[2], "1") == 0 &&
+			argv[3] && strcmp(argv[3], "-W") == 0 &&
+			argv[4] && strcmp(argv[4], "2") == 0 &&
+			argv[5] &&
+			(strcmp(argv[5], "1.1.1.1") == 0 ||
+			 strcmp(argv[5], "openwrt.org") == 0) &&
+			!argv[6];
 	if (strcmp(argv[0], "uci") == 0)
 		return argv[1] && strcmp(argv[1], "show") == 0 &&
 			argv[2] && strcmp(argv[2], "edgepulse") == 0 && !argv[3];
@@ -862,6 +938,9 @@ static int agent_run_read_only_command(const char *name, char *const argv[],
 static void print_agent_tool_json_mode(const struct agent_tool_result *result,
 				       const char *mode)
 {
+	char redacted_output[sizeof(result->output)];
+
+	redact_wifi_keys(result->output, redacted_output, sizeof(redacted_output));
 	printf("    { \"name\": ");
 	print_json_string(result->name);
 	printf(", \"mode\": ");
@@ -870,7 +949,7 @@ static void print_agent_tool_json_mode(const struct agent_tool_result *result,
 	print_json_string(result->status);
 	printf(", \"exit_code\": %d, \"elapsed_ms\": %ld, \"output\": ",
 	       result->exit_code, result->elapsed_ms);
-	print_json_string(result->output);
+	print_json_string(redacted_output);
 	printf(" }");
 }
 
@@ -1833,6 +1912,10 @@ static int EDGEPULSE_AGENT_UNUSED print_agent_status(void)
 	printf("    \"ubus_enabled\": %s,\n", agent.ubus_enabled ? "true" : "false");
 	printf("    \"chat_enabled\": %s,\n", agent.chat_enabled ? "true" : "false");
 	printf("    \"mcp_enabled\": %s,\n", agent.mcp_enabled ? "true" : "false");
+	printf("    \"allow_reconnect_wan\": %s,\n",
+	       agent.allow_reconnect_wan ? "true" : "false");
+	printf("    \"allow_wifi_set\": %s,\n",
+	       agent.allow_wifi_set ? "true" : "false");
 	printf("    \"policy_profile\": ");
 	print_json_string(agent.policy_profile);
 	printf(",\n");
@@ -2643,6 +2726,74 @@ static int agent_policy_allows_mutation(const struct agent_config *agent)
 	return strcmp(agent->policy_profile, "operator_confirmed") == 0;
 }
 
+static int agent_text_contains_ci(const char *text, const char *needle)
+{
+	size_t needle_len = strlen(needle);
+
+	if (!text || !needle || needle_len == 0)
+		return 0;
+	for (const char *p = text; *p; p++) {
+		size_t i = 0;
+		while (i < needle_len && p[i]) {
+			char a = p[i];
+			char b = needle[i];
+			if (a >= 'A' && a <= 'Z')
+				a = (char)(a - 'A' + 'a');
+			if (b >= 'A' && b <= 'Z')
+				b = (char)(b - 'A' + 'a');
+			if (a != b)
+				break;
+			i++;
+		}
+		if (i == needle_len)
+			return 1;
+	}
+	return 0;
+}
+
+static const char *agent_classify_intent(const char *message)
+{
+	if (!message || message[0] == '\0')
+		return NULL;
+
+	if ((agent_text_contains_ci(message, "wifi") ||
+	     strstr(message, "Wi-Fi") || strstr(message, "無線")) &&
+	    (agent_text_contains_ci(message, "status") ||
+	     agent_text_contains_ci(message, "state") ||
+	     agent_text_contains_ci(message, "up") ||
+	     strstr(message, "狀態") || strstr(message, "有開")))
+		return "wifi-status";
+
+	if (agent_text_contains_ci(message, "log") ||
+	    strstr(message, "日誌") || strstr(message, "記錄") || strstr(message, "異常"))
+		return "logs-recent";
+
+	if ((agent_text_contains_ci(message, "reconnect") ||
+	     agent_text_contains_ci(message, "restart wan") ||
+	     agent_text_contains_ci(message, "renew wan") ||
+	     strstr(message, "重新撥接") || strstr(message, "重連")) &&
+	    (agent_text_contains_ci(message, "wan") ||
+	     agent_text_contains_ci(message, "internet") ||
+	     strstr(message, "網路")))
+		return "reconnect-wan";
+
+	if ((agent_text_contains_ci(message, "set") ||
+	     agent_text_contains_ci(message, "change") ||
+	     strstr(message, "設定") || strstr(message, "修改")) &&
+	    (agent_text_contains_ci(message, "wifi") ||
+	     strstr(message, "Wi-Fi") || strstr(message, "無線")))
+		return "wifi-set";
+
+	if (agent_text_contains_ci(message, "status") ||
+	    agent_text_contains_ci(message, "health") ||
+	    agent_text_contains_ci(message, "wan") ||
+	    agent_text_contains_ci(message, "lan") ||
+	    strstr(message, "狀態") || strstr(message, "健康") || strstr(message, "連線"))
+		return "status";
+
+	return NULL;
+}
+
 static void print_agent_confirmation_required(const char *action,
 					      const char *reason)
 {
@@ -2656,6 +2807,17 @@ static void print_agent_confirmation_required(const char *action,
 	printf(",\n");
 	printf("  \"required_policy_profile\": \"operator_confirmed\",\n");
 	printf("  \"required_flag\": \"--confirm\"\n");
+	printf("}\n");
+}
+
+static void print_agent_action_disabled(const char *action)
+{
+	printf("{\n");
+	printf("  \"status\": \"disabled_by_policy\",\n");
+	printf("  \"action\": ");
+	print_json_string(action);
+	printf(",\n");
+	printf("  \"answer\": \"This action is disabled by the EdgePulse per-action policy switch.\"\n");
 	printf("}\n");
 }
 
@@ -2777,6 +2939,13 @@ static int EDGEPULSE_AGENT_UNUSED print_agent_action(int argc, char **argv)
 		char *const ifdown_argv[] = { "ifdown", "wan", NULL };
 		char *const ifup_argv[] = { "ifup", "wan", NULL };
 		char *const network_argv[] = { "ubus", "call", "network.interface", "dump", NULL };
+		char *const ping_ip_argv[] = { "ping", "-c", "1", "-W", "2", "1.1.1.1", NULL };
+		char *const ping_dns_argv[] = { "ping", "-c", "1", "-W", "2", "openwrt.org", NULL };
+
+		if (!agent.allow_reconnect_wan) {
+			print_agent_action_disabled(action);
+			return 0;
+		}
 
 		if (!agent_policy_allows_mutation(&agent) ||
 		    !agent_arg_has_confirm(argc - 4, argv + 4)) {
@@ -2795,6 +2964,16 @@ static int EDGEPULSE_AGENT_UNUSED print_agent_action(int argc, char **argv)
 					 &results[result_count++]);
 		agent_run_read_only_command("ubus.network.interface.dump",
 					    network_argv,
+					    agent.tool_timeout_sec,
+					    agent.max_tool_output_bytes,
+					    &results[result_count++]);
+		agent_run_read_only_command("net.ping.ip",
+					    ping_ip_argv,
+					    agent.tool_timeout_sec,
+					    agent.max_tool_output_bytes,
+					    &results[result_count++]);
+		agent_run_read_only_command("net.ping.dns",
+					    ping_dns_argv,
 					    agent.tool_timeout_sec,
 					    agent.max_tool_output_bytes,
 					    &results[result_count++]);
@@ -2821,6 +3000,10 @@ static int EDGEPULSE_AGENT_UNUSED print_agent_action(int argc, char **argv)
 		char *const wifi_reload_argv[] = { "wifi", "reload", NULL };
 		char *const wireless_argv[] = { "ubus", "call", "network.wireless", "status", NULL };
 
+		if (!agent.allow_wifi_set) {
+			print_agent_action_disabled(action);
+			return 0;
+		}
 		if (!ssid || !agent_value_is_safe(ssid, 64)) {
 			fprintf(stderr, "edgepulse-ctl: wifi-set requires a safe --ssid value up to 64 bytes\n");
 			return 2;
@@ -2909,6 +3092,10 @@ static int EDGEPULSE_AGENT_UNUSED print_agent_policy(void)
 	printf(",\n");
 	printf("  \"allowed_tools\": [\"edgepulse_snapshot\", \"shell.uname\", \"shell.uptime\", \"shell.logread\", \"ubus.system.board\", \"ubus.system.info\", \"ubus.network.interface.dump\", \"ubus.network.wireless.status\"],\n");
 	printf("  \"confirmed_actions\": [\"reconnect-wan\", \"wifi-set\"],\n");
+	printf("  \"action_permissions\": {\n");
+	printf("    \"reconnect_wan\": %s,\n", agent.allow_reconnect_wan ? "true" : "false");
+	printf("    \"wifi_set\": %s\n", agent.allow_wifi_set ? "true" : "false");
+	printf("  },\n");
 	printf("  \"blocked_categories\": [\"file_deletion\", \"package_install_remove\", \"firewall_change\", \"arbitrary_shell\", \"unconfirmed_mutation\"],\n");
 	print_agent_validation(&agent, &model);
 	printf("\n");
@@ -3394,6 +3581,31 @@ static int EDGEPULSE_AGENT_UNUSED handle_agent_mcp_command(int argc, char **argv
 	return 2;
 }
 
+static int EDGEPULSE_AGENT_UNUSED handle_agent_ask_message(const char *message)
+{
+	const char *action = agent_classify_intent(message);
+	char *action_argv[5];
+
+	if (!action)
+		return print_agent_diagnose(message);
+
+	if (strcmp(action, "wifi-set") == 0) {
+		printf("{\n");
+		printf("  \"status\": \"confirmation_required\",\n");
+		printf("  \"intent_action\": \"wifi-set\",\n");
+		printf("  \"answer\": \"I recognized a Wi-Fi settings change request. Run edgepulse-ctl agent action wifi-set --ssid <name> [--key <key>] --confirm with operator_confirmed policy to apply it.\"\n");
+		printf("}\n");
+		return 0;
+	}
+
+	action_argv[0] = "edgepulse-ctl";
+	action_argv[1] = "agent";
+	action_argv[2] = "action";
+	action_argv[3] = (char *)action;
+	action_argv[4] = NULL;
+	return print_agent_action(4, action_argv);
+}
+
 static int handle_agent_command(int argc, char **argv)
 {
 #ifndef EDGEPULSE_ENABLE_AI_AGENT
@@ -3421,7 +3633,7 @@ static int handle_agent_command(int argc, char **argv)
 			fprintf(stderr, "edgepulse-ctl: agent ask requires a message\n");
 			return 2;
 		}
-		return print_agent_diagnose(argv[3]);
+		return handle_agent_ask_message(argv[3]);
 	}
 
 	if (strcmp(argv[2], "chat") == 0) {

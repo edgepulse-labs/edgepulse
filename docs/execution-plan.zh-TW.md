@@ -447,11 +447,11 @@ Operations todo:
 - [x] 加入 read-only 與 mutation allowlist decisions 的 unit coverage。
 - [x] 記錄 user intent scenarios、expected behavior、CLI paths、implementation plan 與 safety rules。
 - [ ] 加入 LuCI operation controls，呼叫同一條 `agent action` path。
-- [ ] 加入小型中文/英文 intent classifier，把常見請求對應到 `status`、`wifi-status`、`logs-recent`、`reconnect-wan` 與 `wifi-set`。
-- [ ] 在 action output 與 audit details 進入 LuCI 或 syslog 前 redacts Wi-Fi keys。
-- [ ] 加入 WAN IP、DNS reachability、Wi-Fi radio up/down state 與 associated clients 的 post-action verification。
-- [ ] 為 `ubus`、`logread`、`uci`、`ifdown`、`ifup` 與 `wifi` 加入 fixture integration tests。
-- [ ] 加入 per-action permission switches，讓 deployment 可以只允許 WAN reconnect，而不啟用 Wi-Fi mutation。
+- [x] 加入小型中文/英文 intent classifier，把常見請求對應到 `status`、`wifi-status`、`logs-recent`、`reconnect-wan` 與 `wifi-set`。
+- [x] 在 action output 與 audit details 進入 LuCI 或 syslog 前 redacts Wi-Fi keys。
+- [x] 加入 WAN IP、DNS reachability、Wi-Fi radio up/down state 與 associated clients 的 post-action verification。
+- [x] 為 `ubus`、`logread`、`uci`、`ifdown`、`ifup` 與 `wifi` 加入 fixture integration tests。
+- [x] 加入 per-action permission switches，讓 deployment 可以只允許 WAN reconnect，而不啟用 Wi-Fi mutation。
 
 Reference:
 
@@ -483,7 +483,7 @@ Chat and MCP todo:
 - [x] 加入 UCI defaults：`chat_enabled`、`default_conversation_id` 與 `mcp_enabled`。
 - [x] 在 OpenWrt One 驗證 CLI、LuCI helper 與 MCP 能看到同一份 conversation transcript。
 - [x] Local C MCP stdio server 會保留 JSON-RPC request IDs。
-- [ ] 加入 local `edgepulse.agent` ubus object，支援 `status`、`chat.ask`、`chat.list`、`action.run`、`policy.show` 與 `audit.list`。
+- [x] 加入 local `edgepulse.agent` ubus object，支援 `status`、`chat.ask`、`chat.list`、`action.run`、`policy.show` 與 `audit.list`。
 - [ ] 加入 LuCI conversation selection 與 action shortcuts。
 - [ ] 加入 CLI、LuCI helper 與 MCP shared transcript behavior 的 automated end-to-end tests。
 - [ ] 若 `openwrt-mcp-server` 重新納入 scope，將 JSON-RPC methods map 到 EdgePulse local CLI/ubus calls。

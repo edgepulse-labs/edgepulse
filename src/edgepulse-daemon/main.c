@@ -1,13 +1,22 @@
 #include "edgepulse.h"
 
 #include <errno.h>
+#include <stdint.h>
 #include <signal.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 #ifdef EDGEPULSE_ENABLE_AI_AGENT
 #include <sqlite3.h>
+#endif
+
+#if defined(EDGEPULSE_ENABLE_AI_AGENT) && defined(EDGEPULSE_ENABLE_UBUS)
+#include <libubox/blobmsg_json.h>
+#include <libubox/uloop.h>
+#include <libubus.h>
 #endif
 
 static volatile sig_atomic_t keep_running = 1;
@@ -88,6 +97,291 @@ static int store_agent_audit(const char *db_path, const char *event_type,
 	return rc == SQLITE_DONE ? 0 : -1;
 }
 
+#ifdef EDGEPULSE_ENABLE_UBUS
+static const char *agent_ubus_db_path = EDGEPULSE_DB_PATH;
+static struct ubus_context *agent_ubus_ctx;
+static struct uloop_timeout agent_heartbeat_timeout;
+static int agent_heartbeat_interval_sec = 60;
+static struct blob_buf agent_ubus_buf;
+
+static int capture_agent_ctl(char *const argv[], char *out, size_t out_size)
+{
+	int pipefd[2];
+	pid_t pid;
+	ssize_t nread;
+	size_t used = 0;
+	int status = 0;
+
+	if (!out || out_size == 0)
+		return -1;
+	out[0] = '\0';
+	if (pipe(pipefd) != 0)
+		return -1;
+
+	pid = fork();
+	if (pid < 0) {
+		close(pipefd[0]);
+		close(pipefd[1]);
+		return -1;
+	}
+	if (pid == 0) {
+		close(pipefd[0]);
+		dup2(pipefd[1], STDOUT_FILENO);
+		dup2(pipefd[1], STDERR_FILENO);
+		close(pipefd[1]);
+		execvp("edgepulse-ctl", argv);
+		_exit(127);
+	}
+
+	close(pipefd[1]);
+	while ((nread = read(pipefd[0], out + used, out_size - used - 1)) > 0) {
+		used += (size_t)nread;
+		out[used] = '\0';
+		if (used + 1 >= out_size)
+			break;
+	}
+	close(pipefd[0]);
+	waitpid(pid, &status, 0);
+	return WIFEXITED(status) ? WEXITSTATUS(status) : 1;
+}
+
+static void agent_ubus_reply(struct ubus_context *ctx, struct ubus_request_data *req,
+			     const char *method, int rc, const char *output)
+{
+	blob_buf_init(&agent_ubus_buf, 0);
+	blobmsg_add_string(&agent_ubus_buf, "method", method);
+	blobmsg_add_u32(&agent_ubus_buf, "exit_code", (uint32_t)rc);
+	blobmsg_add_string(&agent_ubus_buf, "output", output ? output : "");
+	ubus_send_reply(ctx, req, agent_ubus_buf.head);
+}
+
+static int agent_ubus_simple_call(struct ubus_context *ctx,
+				  struct ubus_object *obj __attribute__((unused)),
+				  struct ubus_request_data *req,
+				  const char *method,
+				  struct blob_attr *msg __attribute__((unused)))
+{
+	char output[16384];
+	char *argv[] = { "edgepulse-ctl", "agent", NULL, NULL, NULL };
+	int rc;
+
+	argv[2] = (char *)method;
+	if (strcmp(method, "policy.show") == 0) {
+		argv[2] = "policy";
+		argv[3] = "show";
+	}
+	if (strcmp(method, "audit.list") == 0) {
+		argv[2] = "audit";
+		argv[3] = "list";
+	}
+	rc = capture_agent_ctl(argv, output, sizeof(output));
+	agent_ubus_reply(ctx, req, method, rc, output);
+	return 0;
+}
+
+enum {
+	CHAT_CONVERSATION_ID,
+	CHAT_MESSAGE,
+	CHAT_MAX
+};
+
+static const struct blobmsg_policy chat_ask_policy[CHAT_MAX] = {
+	[CHAT_CONVERSATION_ID] = { .name = "conversation_id", .type = BLOBMSG_TYPE_STRING },
+	[CHAT_MESSAGE] = { .name = "message", .type = BLOBMSG_TYPE_STRING },
+};
+
+static int agent_ubus_chat_ask(struct ubus_context *ctx,
+			       struct ubus_object *obj __attribute__((unused)),
+			       struct ubus_request_data *req,
+			       const char *method,
+			       struct blob_attr *msg)
+{
+	struct blob_attr *tb[CHAT_MAX];
+	const char *conversation_id = "default";
+	const char *message = "";
+	char output[16384];
+	char *argv[] = {
+		"edgepulse-ctl", "agent", "chat", "ask",
+		(char *)conversation_id, (char *)message, NULL
+	};
+	int rc;
+
+	blobmsg_parse(chat_ask_policy, CHAT_MAX, tb, blob_data(msg), blob_len(msg));
+	if (tb[CHAT_CONVERSATION_ID])
+		conversation_id = blobmsg_get_string(tb[CHAT_CONVERSATION_ID]);
+	if (tb[CHAT_MESSAGE])
+		message = blobmsg_get_string(tb[CHAT_MESSAGE]);
+	argv[4] = (char *)conversation_id;
+	argv[5] = (char *)message;
+	rc = capture_agent_ctl(argv, output, sizeof(output));
+	agent_ubus_reply(ctx, req, method, rc, output);
+	return 0;
+}
+
+static int agent_ubus_chat_list(struct ubus_context *ctx,
+				struct ubus_object *obj __attribute__((unused)),
+				struct ubus_request_data *req,
+				const char *method,
+				struct blob_attr *msg)
+{
+	struct blob_attr *tb[CHAT_MAX];
+	const char *conversation_id = NULL;
+	char output[16384];
+	char *argv[] = {
+		"edgepulse-ctl", "agent", "chat", "list", NULL, NULL
+	};
+	int rc;
+
+	blobmsg_parse(chat_ask_policy, CHAT_MAX, tb, blob_data(msg), blob_len(msg));
+	if (tb[CHAT_CONVERSATION_ID]) {
+		conversation_id = blobmsg_get_string(tb[CHAT_CONVERSATION_ID]);
+		argv[4] = (char *)conversation_id;
+	}
+	rc = capture_agent_ctl(argv, output, sizeof(output));
+	agent_ubus_reply(ctx, req, method, rc, output);
+	return 0;
+}
+
+enum {
+	ACTION_NAME,
+	ACTION_CONFIRM,
+	ACTION_SSID,
+	ACTION_KEY,
+	ACTION_ENCRYPTION,
+	ACTION_MAX
+};
+
+static const struct blobmsg_policy action_policy[ACTION_MAX] = {
+	[ACTION_NAME] = { .name = "action", .type = BLOBMSG_TYPE_STRING },
+	[ACTION_CONFIRM] = { .name = "confirm", .type = BLOBMSG_TYPE_BOOL },
+	[ACTION_SSID] = { .name = "ssid", .type = BLOBMSG_TYPE_STRING },
+	[ACTION_KEY] = { .name = "key", .type = BLOBMSG_TYPE_STRING },
+	[ACTION_ENCRYPTION] = { .name = "encryption", .type = BLOBMSG_TYPE_STRING },
+};
+
+static int agent_ubus_action_run(struct ubus_context *ctx,
+				 struct ubus_object *obj __attribute__((unused)),
+				 struct ubus_request_data *req,
+				 const char *method,
+				 struct blob_attr *msg)
+{
+	struct blob_attr *tb[ACTION_MAX];
+	char output[16384];
+	char *argv[14];
+	int argc = 0;
+	int rc;
+
+	blobmsg_parse(action_policy, ACTION_MAX, tb, blob_data(msg), blob_len(msg));
+	if (!tb[ACTION_NAME]) {
+		agent_ubus_reply(ctx, req, method, 2,
+				 "{\"status\":\"error\",\"answer\":\"action.run requires action\"}");
+		return 0;
+	}
+
+	argv[argc++] = "edgepulse-ctl";
+	argv[argc++] = "agent";
+	argv[argc++] = "action";
+	argv[argc++] = (char *)blobmsg_get_string(tb[ACTION_NAME]);
+	if (tb[ACTION_CONFIRM] && blobmsg_get_bool(tb[ACTION_CONFIRM]))
+		argv[argc++] = "--confirm";
+	if (tb[ACTION_SSID]) {
+		argv[argc++] = "--ssid";
+		argv[argc++] = (char *)blobmsg_get_string(tb[ACTION_SSID]);
+	}
+	if (tb[ACTION_KEY]) {
+		argv[argc++] = "--key";
+		argv[argc++] = (char *)blobmsg_get_string(tb[ACTION_KEY]);
+	}
+	if (tb[ACTION_ENCRYPTION]) {
+		argv[argc++] = "--encryption";
+		argv[argc++] = (char *)blobmsg_get_string(tb[ACTION_ENCRYPTION]);
+	}
+	argv[argc] = NULL;
+	rc = capture_agent_ctl(argv, output, sizeof(output));
+	agent_ubus_reply(ctx, req, method, rc, output);
+	return 0;
+}
+
+static int agent_ubus_status(struct ubus_context *ctx, struct ubus_object *obj,
+			     struct ubus_request_data *req, const char *method,
+			     struct blob_attr *msg)
+{
+	return agent_ubus_simple_call(ctx, obj, req, "status", msg);
+}
+
+static int agent_ubus_policy_show(struct ubus_context *ctx, struct ubus_object *obj,
+				  struct ubus_request_data *req, const char *method,
+				  struct blob_attr *msg)
+{
+	return agent_ubus_simple_call(ctx, obj, req, "policy.show", msg);
+}
+
+static int agent_ubus_audit_list(struct ubus_context *ctx, struct ubus_object *obj,
+				 struct ubus_request_data *req, const char *method,
+				 struct blob_attr *msg)
+{
+	return agent_ubus_simple_call(ctx, obj, req, "audit.list", msg);
+}
+
+static const struct ubus_method agent_ubus_methods[] = {
+	UBUS_METHOD_NOARG("status", agent_ubus_status),
+	UBUS_METHOD("chat.ask", agent_ubus_chat_ask, chat_ask_policy),
+	UBUS_METHOD("chat.list", agent_ubus_chat_list, chat_ask_policy),
+	UBUS_METHOD("action.run", agent_ubus_action_run, action_policy),
+	UBUS_METHOD_NOARG("policy.show", agent_ubus_policy_show),
+	UBUS_METHOD_NOARG("audit.list", agent_ubus_audit_list),
+};
+
+static struct ubus_object_type agent_ubus_object_type =
+	UBUS_OBJECT_TYPE("edgepulse.agent", agent_ubus_methods);
+
+static struct ubus_object agent_ubus_object = {
+	.name = "edgepulse.agent",
+	.type = &agent_ubus_object_type,
+	.methods = agent_ubus_methods,
+	.n_methods = ARRAY_SIZE(agent_ubus_methods),
+};
+
+static void agent_heartbeat_cb(struct uloop_timeout *timeout)
+{
+	if (!keep_running) {
+		uloop_end();
+		return;
+	}
+	if (store_agent_audit(agent_ubus_db_path, "agentd.heartbeat",
+			      "EdgePulse AI agent runtime monitor heartbeat") != 0) {
+		fprintf(stderr, "edgepulse: failed to write agent heartbeat: %s\n",
+			strerror(errno));
+	}
+	uloop_timeout_set(timeout, agent_heartbeat_interval_sec * 1000);
+}
+
+static int run_agent_ubus_daemon(const char *db_path, int heartbeat_interval_sec)
+{
+	agent_ubus_db_path = db_path;
+	agent_heartbeat_interval_sec = heartbeat_interval_sec;
+	agent_heartbeat_timeout.cb = agent_heartbeat_cb;
+
+	uloop_init();
+	agent_ubus_ctx = ubus_connect(NULL);
+	if (!agent_ubus_ctx) {
+		uloop_done();
+		return -1;
+	}
+	ubus_add_uloop(agent_ubus_ctx);
+	if (ubus_add_object(agent_ubus_ctx, &agent_ubus_object) != 0) {
+		ubus_free(agent_ubus_ctx);
+		uloop_done();
+		return -1;
+	}
+	uloop_timeout_set(&agent_heartbeat_timeout, heartbeat_interval_sec * 1000);
+	uloop_run();
+	ubus_free(agent_ubus_ctx);
+	uloop_done();
+	return 0;
+}
+#endif
+
 static int run_agent_daemon(const char *db_path, int heartbeat_interval_sec)
 {
 	signal(SIGINT, handle_signal);
@@ -100,6 +394,12 @@ static int run_agent_daemon(const char *db_path, int heartbeat_interval_sec)
 		return 1;
 	}
 
+#ifdef EDGEPULSE_ENABLE_UBUS
+	if (run_agent_ubus_daemon(db_path, heartbeat_interval_sec) == 0)
+		goto stopped;
+	fprintf(stderr, "edgepulse: ubus agent object unavailable, falling back to heartbeat-only mode\n");
+#endif
+
 	while (keep_running) {
 		if (store_agent_audit(db_path, "agentd.heartbeat",
 				      "EdgePulse AI agent runtime monitor heartbeat") != 0) {
@@ -111,6 +411,9 @@ static int run_agent_daemon(const char *db_path, int heartbeat_interval_sec)
 			sleep(1);
 	}
 
+#ifdef EDGEPULSE_ENABLE_UBUS
+stopped:
+#endif
 	if (store_agent_audit(db_path, "agentd.stopped",
 			      "EdgePulse AI agent runtime monitor stopped") != 0) {
 		fprintf(stderr, "edgepulse: failed to write agent stop audit: %s\n",

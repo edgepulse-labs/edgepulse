@@ -35,6 +35,7 @@ config agent 'agent'
 	option allow_reconnect_wan '1'
 	option allow_wifi_restart '1'
 	option allow_wifi_set '1'
+	option allow_service_restart '1'
 EOF_CONFIG
 
 cat >"$BIN_DIR/ubus" <<'EOF_UBUS'
@@ -53,6 +54,10 @@ if [ "$1 $2 $3" = "call network.interface.lan status" ]; then
 fi
 if [ "$1 $2 $3" = "call network.wireless status" ]; then
 	printf '{"radio0":{"up":true,"interfaces":[{"section":"default_radio0","config":{"ssid":"EdgePulse","key":"fixture-secret"},"stations":["02:00:00:00:00:01"]}]}}\n'
+	exit 0
+fi
+if [ "$1 $2 $3" = "call service list" ]; then
+	printf '{"dnsmasq":{"instances":{"instance1":{"running":true}}}}\n'
 	exit 0
 fi
 printf '{}\n'
@@ -85,6 +90,11 @@ cat >"$BIN_DIR/wifi" <<'EOF_WIFI'
 #!/bin/sh
 printf 'wifi %s\n' "$1"
 EOF_WIFI
+
+cat >"$BIN_DIR/service" <<'EOF_SERVICE'
+#!/bin/sh
+printf 'service %s %s\n' "$1" "$2"
+EOF_SERVICE
 
 cat >"$BIN_DIR/iwinfo" <<'EOF_IWINFO'
 #!/bin/sh
@@ -163,6 +173,16 @@ printf '%s\n' "$wifi_metrics_out" | grep -q 'Channel utilization' ||
 	fail "wifi-metrics did not return utilization fixture output"
 printf '%s\n' "$wifi_metrics_out" | grep -q '02:00:00:00:00:01' ||
 	fail "wifi-metrics did not return station fixture output"
+
+service_restart_out="$("$ROOT/edgepulse-ctl" agent action service-restart --service dnsmasq --confirm)"
+printf '%s\n' "$service_restart_out" | grep -q '"action": "service-restart"' ||
+	fail "service-restart did not complete action path"
+printf '%s\n' "$service_restart_out" | grep -q '"name": "procd.service.restart"' ||
+	fail "service-restart did not run restart tool"
+printf '%s\n' "$service_restart_out" | grep -q 'service dnsmasq restart' ||
+	fail "service-restart did not restart allowlisted service"
+printf '%s\n' "$service_restart_out" | grep -q '"name": "ubus.service.list"' ||
+	fail "service-restart did not verify service list"
 
 wifi_restart_out="$("$ROOT/edgepulse-ctl" agent action wifi-restart --confirm)"
 printf '%s\n' "$wifi_restart_out" | grep -q '"action": "wifi-restart"' ||

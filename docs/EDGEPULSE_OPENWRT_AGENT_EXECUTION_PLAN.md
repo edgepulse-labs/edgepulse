@@ -109,11 +109,13 @@ OpenWrt capability layer:
 - [x] ubus wireless status through allowlisted commands.
 - [x] ubus service list through allowlisted commands.
 - [x] UCI read for EdgePulse config through allowlisted MCP method.
+- [x] Generic controlled UCI read API through `edgepulse.uci.get` with schema-enforced config targets.
 - [x] UCI wireless writes through validated confirmed actions.
 - [x] logread bounded read.
 - [x] ping reachability checks.
 - [x] iwinfo wrapper for detailed Wi-Fi radio/station metrics.
-- [ ] procd wrapper for service restart/enable/disable.
+- [x] procd wrapper for allowlisted service restart.
+- [ ] procd wrapper for service enable/disable with admin policy.
 - [ ] controlled firewall/package-operation policy stubs that explicitly remain restricted.
 
 ## 4. Directory Structure Checklist
@@ -199,6 +201,7 @@ Confirmed mutation skills:
 - [x] `openwrt.wan.reconnect`
 - [x] `openwrt.wifi.restart`
 - [x] `openwrt.wifi.set_ssid`
+- [x] `openwrt.service.restart`
 
 ## 6. Core Components
 
@@ -305,13 +308,13 @@ Checklist:
 - [x] Read-only `uci show edgepulse` through MCP method.
 - [x] Validated wireless SSID/encryption/key writes.
 - [x] Wireless commit action.
-- [ ] Generic controlled config read API with schemas.
+- [x] Generic controlled config read API with schemas through `edgepulse.uci.get` config enum targets.
 - [ ] Validated config write API beyond Wi-Fi MVP.
 
 ### procd/service wrapper
 
 - [x] Read-only service status through `ubus call service list`.
-- [ ] Service restart for allowlisted services.
+- [x] Service restart for allowlisted services through confirmed `service-restart --service network|dnsmasq|firewall|uhttpd`.
 - [ ] Service enable/disable with admin policy.
 
 ### Wi-Fi wrapper
@@ -477,7 +480,7 @@ Use this queue for the next implementation passes:
 - [ ] Add rpcd ACL files in the OpenWrt feed.
 - [ ] Validate `EDGEPULSE_ENABLE_UBUS` build on OpenWrt target.
 - [x] Add iwinfo wrapper for richer Wi-Fi diagnostics through `wifi-metrics` and `openwrt.wifi.metrics`.
-- [ ] Add procd allowlisted service restart skill under stricter policy.
+- [x] Add procd allowlisted service restart skill under stricter policy.
 
 ## 16. Strategic Direction
 

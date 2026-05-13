@@ -60,10 +60,16 @@ static void test_agent_policy_allowlist(void)
 	char *const ping_ip_ok[] = { "ping", "-c", "1", "-W", "2", "1.1.1.1", NULL };
 	char *const ping_denied[] = { "ping", "-c", "3", "1.1.1.1", NULL };
 	char *const uci_show_ok[] = { "uci", "show", "edgepulse", NULL };
+	char *const uci_show_network_ok[] = { "uci", "show", "network.wan", NULL };
+	char *const uci_get_wireless_ok[] = { "uci", "get", "wireless.@wifi-iface[0].ssid", NULL };
+	char *const uci_get_key_denied[] = { "uci", "get", "wireless.@wifi-iface[0].key", NULL };
 	char *const uci_show_denied[] = { "uci", "show", "wireless", NULL };
 	char *const ifup_wan_ok[] = { "ifup", "wan", NULL };
 	char *const ifup_lan_denied[] = { "ifup", "lan", NULL };
 	char *const wifi_reload_ok[] = { "wifi", "reload", NULL };
+	char *const service_restart_ok[] = { "service", "dnsmasq", "restart", NULL };
+	char *const service_restart_denied[] = { "service", "dropbear", "restart", NULL };
+	char *const service_enable_denied[] = { "service", "dnsmasq", "enable", NULL };
 	char *const uci_ssid_ok[] = { "uci", "set", "wireless.@wifi-iface[0].ssid=EdgePulse", NULL };
 	char *const uci_network_denied[] = { "uci", "set", "network.wan.proto=dhcp", NULL };
 	char *const ubus_denied[] = { "ubus", "call", "service", "restart", NULL };
@@ -87,6 +93,9 @@ static void test_agent_policy_allowlist(void)
 	check_int("allow bounded ping", agent_command_allowed(ping_ip_ok), 1);
 	check_int("deny arbitrary ping", agent_command_allowed(ping_denied), 0);
 	check_int("allow edgepulse uci read", agent_command_allowed(uci_show_ok), 1);
+	check_int("allow network wan uci read", agent_command_allowed(uci_show_network_ok), 1);
+	check_int("allow wireless ssid uci read", agent_command_allowed(uci_get_wireless_ok), 1);
+	check_int("deny wireless key uci read", agent_command_allowed(uci_get_key_denied), 0);
 	check_int("deny arbitrary uci read", agent_command_allowed(uci_show_denied), 0);
 	check_int("deny ubus service restart", agent_command_allowed(ubus_denied), 0);
 	check_int("deny rm", agent_command_allowed(rm_denied), 0);
@@ -95,6 +104,9 @@ static void test_agent_policy_allowlist(void)
 	check_int("allow confirmed ifup wan", agent_mutating_command_allowed(ifup_wan_ok), 1);
 	check_int("deny confirmed ifup lan", agent_mutating_command_allowed(ifup_lan_denied), 0);
 	check_int("allow wifi reload", agent_mutating_command_allowed(wifi_reload_ok), 1);
+	check_int("allow service restart", agent_mutating_command_allowed(service_restart_ok), 1);
+	check_int("deny arbitrary service restart", agent_mutating_command_allowed(service_restart_denied), 0);
+	check_int("deny service enable", agent_mutating_command_allowed(service_enable_denied), 0);
 	check_int("allow wifi ssid uci", agent_mutating_command_allowed(uci_ssid_ok), 1);
 	check_int("deny network uci", agent_mutating_command_allowed(uci_network_denied), 0);
 	check_int("safe wan interface", agent_interface_is_safe("wan"), 1);
@@ -102,6 +114,8 @@ static void test_agent_policy_allowlist(void)
 	check_int("unsafe guest interface", agent_interface_is_safe("guest"), 0);
 	check_int("safe wlan0 interface", agent_wifi_interface_is_safe("wlan0"), 1);
 	check_int("unsafe phy0-ap0 interface", agent_wifi_interface_is_safe("phy0-ap0"), 0);
+	check_int("safe dnsmasq service", agent_service_is_safe("dnsmasq"), 1);
+	check_int("unsafe dropbear service", agent_service_is_safe("dropbear"), 0);
 }
 
 static void test_agent_tool_execution(void)
@@ -184,6 +198,7 @@ static void test_agent_uci_parsing(void)
 	      " option allow_reconnect_wan '0'\n"
 	      " option allow_wifi_restart '0'\n"
 	      " option allow_wifi_set '0'\n"
+	      " option allow_service_restart '1'\n"
 	      " option mcp_allow_edgepulse_status '0'\n"
 	      " option mcp_allow_chat_ask '0'\n"
 	      " option mcp_allow_uci_get_edgepulse '0'\n"
@@ -243,6 +258,7 @@ static void test_agent_uci_parsing(void)
 	check_int("agent reconnect permission parse", agent.allow_reconnect_wan, 0);
 	check_int("agent wifi restart permission parse", agent.allow_wifi_restart, 0);
 	check_int("agent wifi permission parse", agent.allow_wifi_set, 0);
+	check_int("agent service restart permission parse", agent.allow_service_restart, 1);
 	check_int("mcp status acl parse", agent.mcp_allow_edgepulse_status, 0);
 	check_int("mcp chat ask acl parse", agent.mcp_allow_chat_ask, 0);
 	check_int("mcp uci acl parse", agent.mcp_allow_uci_get_edgepulse, 0);
@@ -389,7 +405,7 @@ static void test_agent_skill_registry(void)
 	wan_skill = agent_find_skill("openwrt.wan.reconnect");
 	wifi_restart_skill = agent_find_skill("openwrt.wifi.restart");
 
-	check_int("skill count", (int)agent_skill_count(), 11);
+	check_int("skill count", (int)agent_skill_count(), 12);
 	check_string("find status skill action",
 		     status_skill ? status_skill->action : "", "status");
 	check_int("status skill read only", status_skill ? status_skill->read_only : 0, 1);

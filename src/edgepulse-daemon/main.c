@@ -253,6 +253,7 @@ enum {
 	ACTION_KEY,
 	ACTION_ENCRYPTION,
 	ACTION_WIFI_INTERFACE,
+	ACTION_SERVICE,
 	ACTION_CONTAINS,
 	ACTION_LEVEL,
 	ACTION_MAX
@@ -265,6 +266,7 @@ static const struct blobmsg_policy action_policy[ACTION_MAX] = {
 	[ACTION_KEY] = { .name = "key", .type = BLOBMSG_TYPE_STRING },
 	[ACTION_ENCRYPTION] = { .name = "encryption", .type = BLOBMSG_TYPE_STRING },
 	[ACTION_WIFI_INTERFACE] = { .name = "wifi_interface", .type = BLOBMSG_TYPE_STRING },
+	[ACTION_SERVICE] = { .name = "service", .type = BLOBMSG_TYPE_STRING },
 	[ACTION_CONTAINS] = { .name = "contains", .type = BLOBMSG_TYPE_STRING },
 	[ACTION_LEVEL] = { .name = "level", .type = BLOBMSG_TYPE_STRING },
 };
@@ -292,8 +294,10 @@ enum {
 	MCP_MESSAGE,
 	MCP_ACTION,
 	MCP_SKILL_ID,
+	MCP_CONFIG,
 	MCP_INTERFACE,
 	MCP_WIFI_INTERFACE,
+	MCP_SERVICE,
 	MCP_CONFIRM,
 	MCP_SSID,
 	MCP_KEY,
@@ -309,8 +313,10 @@ static const struct blobmsg_policy mcp_tool_policy[MCP_MAX] = {
 	[MCP_MESSAGE] = { .name = "message", .type = BLOBMSG_TYPE_STRING },
 	[MCP_ACTION] = { .name = "action", .type = BLOBMSG_TYPE_STRING },
 	[MCP_SKILL_ID] = { .name = "skill_id", .type = BLOBMSG_TYPE_STRING },
+	[MCP_CONFIG] = { .name = "config", .type = BLOBMSG_TYPE_STRING },
 	[MCP_INTERFACE] = { .name = "interface", .type = BLOBMSG_TYPE_STRING },
 	[MCP_WIFI_INTERFACE] = { .name = "wifi_interface", .type = BLOBMSG_TYPE_STRING },
+	[MCP_SERVICE] = { .name = "service", .type = BLOBMSG_TYPE_STRING },
 	[MCP_CONFIRM] = { .name = "confirm", .type = BLOBMSG_TYPE_BOOL },
 	[MCP_SSID] = { .name = "ssid", .type = BLOBMSG_TYPE_STRING },
 	[MCP_KEY] = { .name = "key", .type = BLOBMSG_TYPE_STRING },
@@ -409,7 +415,7 @@ static int agent_ubus_mcp_tools_call(struct ubus_context *ctx,
 {
 	struct blob_attr *tb[MCP_MAX];
 	char output[16384];
-	char *argv[22];
+	char *argv[26];
 	const char *name;
 	int argc = 0;
 	int rc;
@@ -456,6 +462,13 @@ static int agent_ubus_mcp_tools_call(struct ubus_context *ctx,
 			return 0;
 		}
 		argv[argc++] = (char *)blobmsg_get_string(tb[MCP_SKILL_ID]);
+	} else if (strcmp(name, "edgepulse.uci.get") == 0) {
+		if (!tb[MCP_CONFIG]) {
+			agent_ubus_reply(ctx, req, method, 2,
+					 "{\"status\":\"error\",\"answer\":\"edgepulse.uci.get requires config\"}");
+			return 0;
+		}
+		argv[argc++] = (char *)blobmsg_get_string(tb[MCP_CONFIG]);
 	}
 
 	if ((strcmp(name, "edgepulse.agent.action.run") == 0 ||
@@ -492,6 +505,11 @@ static int agent_ubus_mcp_tools_call(struct ubus_context *ctx,
 		argv[argc++] = (char *)blobmsg_get_string(tb[MCP_WIFI_INTERFACE]);
 	}
 	if (strcmp(name, "edgepulse.agent.action.run") == 0 &&
+	    tb[MCP_SERVICE]) {
+		argv[argc++] = "--service";
+		argv[argc++] = (char *)blobmsg_get_string(tb[MCP_SERVICE]);
+	}
+	if (strcmp(name, "edgepulse.agent.action.run") == 0 &&
 	    tb[MCP_CONTAINS]) {
 		argv[argc++] = "--contains";
 		argv[argc++] = (char *)blobmsg_get_string(tb[MCP_CONTAINS]);
@@ -516,7 +534,7 @@ static int agent_ubus_action_run(struct ubus_context *ctx,
 {
 	struct blob_attr *tb[ACTION_MAX];
 	char output[16384];
-	char *argv[18];
+	char *argv[20];
 	int argc = 0;
 	int rc;
 
@@ -548,6 +566,10 @@ static int agent_ubus_action_run(struct ubus_context *ctx,
 	if (tb[ACTION_WIFI_INTERFACE]) {
 		argv[argc++] = "--wifi-interface";
 		argv[argc++] = (char *)blobmsg_get_string(tb[ACTION_WIFI_INTERFACE]);
+	}
+	if (tb[ACTION_SERVICE]) {
+		argv[argc++] = "--service";
+		argv[argc++] = (char *)blobmsg_get_string(tb[ACTION_SERVICE]);
 	}
 	if (tb[ACTION_CONTAINS]) {
 		argv[argc++] = "--contains";

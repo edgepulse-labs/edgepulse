@@ -45,6 +45,7 @@ struct agent_config {
 	int allow_reconnect_wan;
 	int allow_wifi_restart;
 	int allow_wifi_set;
+	int allow_service_restart;
 	int mcp_allow_edgepulse_status;
 	int mcp_allow_agent_status;
 	int mcp_allow_chat_list;
@@ -434,6 +435,7 @@ static void init_agent_config(struct agent_config *agent,
 	agent->allow_reconnect_wan = 1;
 	agent->allow_wifi_restart = 1;
 	agent->allow_wifi_set = 1;
+	agent->allow_service_restart = 0;
 	agent->mcp_allow_edgepulse_status = 1;
 	agent->mcp_allow_agent_status = 1;
 	agent->mcp_allow_chat_list = 1;
@@ -567,6 +569,8 @@ static int read_agent_config_models(struct agent_config *agent,
 				agent->allow_wifi_restart = parse_bool_value(value, agent->allow_wifi_restart);
 			else if (strcmp(key, "allow_wifi_set") == 0)
 				agent->allow_wifi_set = parse_bool_value(value, agent->allow_wifi_set);
+			else if (strcmp(key, "allow_service_restart") == 0)
+				agent->allow_service_restart = parse_bool_value(value, agent->allow_service_restart);
 			else if (strcmp(key, "mcp_allow_edgepulse_status") == 0)
 				agent->mcp_allow_edgepulse_status = parse_bool_value(value, agent->mcp_allow_edgepulse_status);
 			else if (strcmp(key, "mcp_allow_agent_status") == 0)
@@ -917,6 +921,15 @@ out:
 	return rc;
 }
 
+static int agent_service_is_safe(const char *service)
+{
+	return service &&
+		(strcmp(service, "network") == 0 ||
+		 strcmp(service, "dnsmasq") == 0 ||
+		 strcmp(service, "firewall") == 0 ||
+		 strcmp(service, "uhttpd") == 0);
+}
+
 static int agent_command_allowed(char *const argv[])
 {
 	if (!argv || !argv[0])
@@ -973,9 +986,19 @@ static int agent_command_allowed(char *const argv[])
 			(strcmp(argv[5], "1.1.1.1") == 0 ||
 			 strcmp(argv[5], "openwrt.org") == 0) &&
 			!argv[6];
-	if (strcmp(argv[0], "uci") == 0)
-		return argv[1] && strcmp(argv[1], "show") == 0 &&
-			argv[2] && strcmp(argv[2], "edgepulse") == 0 && !argv[3];
+	if (strcmp(argv[0], "uci") == 0) {
+		if (argv[1] && strcmp(argv[1], "show") == 0 && argv[2] &&
+		    !argv[3])
+			return strcmp(argv[2], "edgepulse") == 0 ||
+				strcmp(argv[2], "network.wan") == 0 ||
+				strcmp(argv[2], "network.lan") == 0 ||
+				strcmp(argv[2], "network.wwan") == 0;
+		if (argv[1] && strcmp(argv[1], "get") == 0 && argv[2] &&
+		    !argv[3])
+			return strcmp(argv[2], "wireless.@wifi-iface[0].ssid") == 0 ||
+				strcmp(argv[2], "wireless.@wifi-iface[0].encryption") == 0 ||
+				strcmp(argv[2], "wireless.@wifi-iface[0].disabled") == 0;
+	}
 	return 0;
 }
 
@@ -993,6 +1016,9 @@ static int agent_mutating_command_allowed(char *const argv[])
 	if (strcmp(argv[0], "wifi") == 0 && argv[1] &&
 	    strcmp(argv[1], "reload") == 0 && !argv[2])
 		return 1;
+	if (strcmp(argv[0], "service") == 0 && argv[1] && argv[2] &&
+	    strcmp(argv[2], "restart") == 0 && !argv[3])
+		return agent_service_is_safe(argv[1]);
 	if (strcmp(argv[0], "uci") == 0 && argv[1]) {
 		if (strcmp(argv[1], "commit") == 0 && argv[2] &&
 		    strcmp(argv[2], "wireless") == 0 && !argv[3])
@@ -2114,6 +2140,8 @@ static int EDGEPULSE_AGENT_UNUSED print_agent_status(void)
 	       agent.allow_wifi_restart ? "true" : "false");
 	printf("    \"allow_wifi_set\": %s,\n",
 	       agent.allow_wifi_set ? "true" : "false");
+	printf("    \"allow_service_restart\": %s,\n",
+	       agent.allow_service_restart ? "true" : "false");
 	printf("    \"mcp_method_acl\": {\n");
 	printf("      \"edgepulse.status\": %s,\n", agent.mcp_allow_edgepulse_status ? "true" : "false");
 	printf("      \"edgepulse.agent.status\": %s,\n", agent.mcp_allow_agent_status ? "true" : "false");
@@ -2126,7 +2154,8 @@ static int EDGEPULSE_AGENT_UNUSED print_agent_status(void)
 	printf("      \"edgepulse.agent.audit.list\": %s,\n", agent.mcp_allow_audit_list ? "true" : "false");
 	printf("      \"edgepulse.ubus.status.network\": %s,\n", agent.mcp_allow_ubus_status_network ? "true" : "false");
 	printf("      \"edgepulse.ubus.status.wireless\": %s,\n", agent.mcp_allow_ubus_status_wireless ? "true" : "false");
-	printf("      \"edgepulse.uci.get.edgepulse\": %s\n", agent.mcp_allow_uci_get_edgepulse ? "true" : "false");
+	printf("      \"edgepulse.uci.get.edgepulse\": %s,\n", agent.mcp_allow_uci_get_edgepulse ? "true" : "false");
+	printf("      \"edgepulse.uci.get\": %s\n", agent.mcp_allow_uci_get_edgepulse ? "true" : "false");
 	printf("    },\n");
 	printf("    \"policy_profile\": ");
 	print_json_string(agent.policy_profile);
@@ -3193,7 +3222,7 @@ static int EDGEPULSE_AGENT_UNUSED print_agent_action(int argc, char **argv)
 	int result_count = 0;
 
 	if (argc < 4) {
-		fprintf(stderr, "Usage: edgepulse-ctl agent action <status|interface-status|dhcp-status|wifi-status|wifi-metrics|logs-recent|service-status|dns-diagnose|reconnect-wan|wifi-restart|wifi-set> [--confirm] [--contains text] [--level error|warn|info|debug] [options]\n");
+		fprintf(stderr, "Usage: edgepulse-ctl agent action <status|interface-status|dhcp-status|wifi-status|wifi-metrics|logs-recent|service-status|dns-diagnose|reconnect-wan|wifi-restart|wifi-set|service-restart> [--confirm] [--service name] [--contains text] [--level error|warn|info|debug] [options]\n");
 		return 2;
 	}
 
@@ -3507,7 +3536,46 @@ static int EDGEPULSE_AGENT_UNUSED print_agent_action(int argc, char **argv)
 		return 0;
 	}
 
-	fprintf(stderr, "Usage: edgepulse-ctl agent action <status|interface-status|dhcp-status|wifi-status|wifi-metrics|logs-recent|service-status|dns-diagnose|reconnect-wan|wifi-restart|wifi-set> [--confirm] [--contains text] [--level error|warn|info|debug] [options]\n");
+	if (strcmp(action, "service-restart") == 0) {
+		const char *service = agent_arg_value(argc - 4, argv + 4, "--service");
+		char *service_argv[] = { "service", NULL, "restart", NULL };
+		char *const service_list_argv[] = { "ubus", "call", "service", "list", NULL };
+
+		if (!service)
+			service = "dnsmasq";
+		if (!agent_service_is_safe(service)) {
+			fprintf(stderr, "edgepulse-ctl: --service must be network, dnsmasq, firewall, or uhttpd\n");
+			return 2;
+		}
+		if (!agent.allow_service_restart) {
+			print_agent_action_disabled(action);
+			return 0;
+		}
+		if (!agent_policy_allows_mutation(&agent) ||
+		    !agent_arg_has_confirm(argc - 4, argv + 4)) {
+			print_agent_confirmation_required(action,
+							  "Restarting an OpenWrt service changes runtime state and may interrupt traffic.");
+			return 0;
+		}
+
+		service_argv[1] = (char *)service;
+		agent_run_policy_command("procd.service.restart", service_argv,
+					 agent.tool_timeout_sec,
+					 agent.max_tool_output_bytes, 1,
+					 &results[result_count++]);
+		agent_run_read_only_command("ubus.service.list",
+					    service_list_argv,
+					    agent.tool_timeout_sec,
+					    agent.max_tool_output_bytes,
+					    &results[result_count++]);
+		for (int i = 0; i < result_count; i++)
+			agent_store_audit(agent.db_path, request_id, results[i].name,
+					  results[i].status);
+		print_agent_action_result(action, request_id, results, result_count);
+		return 0;
+	}
+
+	fprintf(stderr, "Usage: edgepulse-ctl agent action <status|interface-status|dhcp-status|wifi-status|wifi-metrics|logs-recent|service-status|dns-diagnose|reconnect-wan|wifi-restart|wifi-set|service-restart> [--confirm] [--service name] [--contains text] [--level error|warn|info|debug] [options]\n");
 	return 2;
 }
 
@@ -3681,6 +3749,21 @@ static const struct agent_skill agent_builtin_skills[] = {
 		},
 		.source = "builtin"
 	},
+	{
+		.id = "openwrt.service.restart",
+		.title = "Restart Allowlisted Service",
+		.description = "Restart an allowlisted OpenWrt service and verify service status.",
+		.action = "service-restart",
+		.required_policy = "operator_confirmed",
+		.requires_confirm = 1,
+		.read_only = 0,
+		.steps = {
+			"procd.service.restart",
+			"ubus.service.list",
+			NULL
+		},
+		.source = "builtin"
+	},
 };
 
 static size_t agent_skill_count(void)
@@ -3701,7 +3784,8 @@ static int agent_skill_action_supported(const char *action)
 		 strcmp(action, "dns-diagnose") == 0 ||
 		 strcmp(action, "reconnect-wan") == 0 ||
 		 strcmp(action, "wifi-restart") == 0 ||
-		 strcmp(action, "wifi-set") == 0);
+		 strcmp(action, "wifi-set") == 0 ||
+		 strcmp(action, "service-restart") == 0);
 }
 
 static const char *agent_skills_dir(void)
@@ -3871,6 +3955,8 @@ static int agent_skill_allowed(const struct agent_config *agent,
 		return 0;
 	if (strcmp(skill->action, "wifi-set") == 0 && !agent->allow_wifi_set)
 		return 0;
+	if (strcmp(skill->action, "service-restart") == 0 && !agent->allow_service_restart)
+		return 0;
 	return agent_policy_allows_mutation(agent);
 }
 
@@ -4031,11 +4117,12 @@ static int EDGEPULSE_AGENT_UNUSED print_agent_policy(void)
 			  "operator_confirmed" : "read_only");
 	printf(",\n");
 	printf("  \"allowed_tools\": [\"edgepulse_snapshot\", \"shell.uname\", \"shell.uptime\", \"shell.logread\", \"ubus.system.board\", \"ubus.system.info\", \"ubus.network.interface.dump\", \"ubus.network.interface.status\", \"ubus.network.interface.dhcp_state\", \"ubus.network.wireless.status\", \"ubus.service.list\", \"iwinfo.radio.info\", \"iwinfo.radio.assoclist\", \"net.ping.ip\", \"net.ping.dns\"],\n");
-	printf("  \"confirmed_actions\": [\"reconnect-wan\", \"wifi-restart\", \"wifi-set\"],\n");
+	printf("  \"confirmed_actions\": [\"reconnect-wan\", \"wifi-restart\", \"wifi-set\", \"service-restart\"],\n");
 	printf("  \"action_permissions\": {\n");
 	printf("    \"reconnect_wan\": %s,\n", agent.allow_reconnect_wan ? "true" : "false");
 	printf("    \"wifi_restart\": %s,\n", agent.allow_wifi_restart ? "true" : "false");
-	printf("    \"wifi_set\": %s\n", agent.allow_wifi_set ? "true" : "false");
+	printf("    \"wifi_set\": %s,\n", agent.allow_wifi_set ? "true" : "false");
+	printf("    \"service_restart\": %s\n", agent.allow_service_restart ? "true" : "false");
 	printf("  },\n");
 	printf("  \"blocked_categories\": [\"file_deletion\", \"package_install_remove\", \"firewall_change\", \"arbitrary_shell\", \"unconfirmed_mutation\"],\n");
 	print_agent_validation(&agent, &model);
@@ -4070,6 +4157,8 @@ static int agent_mcp_method_allowed(const struct agent_config *agent,
 	if (strcmp(method, "edgepulse.ubus.status.wireless") == 0)
 		return agent->mcp_allow_ubus_status_wireless;
 	if (strcmp(method, "edgepulse.uci.get.edgepulse") == 0)
+		return agent->mcp_allow_uci_get_edgepulse;
+	if (strcmp(method, "edgepulse.uci.get") == 0)
 		return agent->mcp_allow_uci_get_edgepulse;
 	return 0;
 }
@@ -4117,6 +4206,8 @@ static int EDGEPULSE_AGENT_UNUSED print_agent_mcp_methods(void)
 	print_agent_mcp_method_json(&agent, "edgepulse.ubus.status.wireless", "read_only");
 	printf(",\n");
 	print_agent_mcp_method_json(&agent, "edgepulse.uci.get.edgepulse", "read_only");
+	printf(",\n");
+	print_agent_mcp_method_json(&agent, "edgepulse.uci.get", "read_only");
 	printf("\n");
 	printf("  ]\n");
 	printf("}\n");
@@ -4142,7 +4233,11 @@ static void print_agent_mcp_input_schema(const char *name)
 		return;
 	}
 	if (strcmp(name, "edgepulse.agent.action.run") == 0) {
-		printf("{\"type\":\"object\",\"properties\":{\"action\":{\"type\":\"string\",\"enum\":[\"status\",\"interface-status\",\"dhcp-status\",\"wifi-status\",\"wifi-metrics\",\"logs-recent\",\"service-status\",\"dns-diagnose\",\"reconnect-wan\",\"wifi-restart\",\"wifi-set\"]},\"interface\":{\"type\":\"string\",\"enum\":[\"wan\",\"lan\",\"wwan\"],\"description\":\"Safe OpenWrt interface name for interface-status and dhcp-status\"},\"wifi_interface\":{\"type\":\"string\",\"enum\":[\"wlan0\",\"wlan1\"],\"description\":\"Safe iwinfo interface name for wifi-metrics\"},\"contains\":{\"type\":\"string\",\"description\":\"Safe substring filter for logs-recent output\"},\"level\":{\"type\":\"string\",\"enum\":[\"error\",\"warn\",\"info\",\"debug\"],\"description\":\"Best-effort log severity filter for logs-recent output\"},\"confirm\":{\"type\":\"boolean\",\"description\":\"Explicit operator confirmation for mutation actions\"},\"ssid\":{\"type\":\"string\",\"description\":\"Wi-Fi SSID for wifi-set\"},\"key\":{\"type\":\"string\",\"description\":\"Wi-Fi key for wifi-set\"},\"encryption\":{\"type\":\"string\",\"enum\":[\"none\",\"psk2\",\"sae-mixed\"]}},\"required\":[\"action\"]}");
+		printf("{\"type\":\"object\",\"properties\":{\"action\":{\"type\":\"string\",\"enum\":[\"status\",\"interface-status\",\"dhcp-status\",\"wifi-status\",\"wifi-metrics\",\"logs-recent\",\"service-status\",\"dns-diagnose\",\"reconnect-wan\",\"wifi-restart\",\"wifi-set\",\"service-restart\"]},\"interface\":{\"type\":\"string\",\"enum\":[\"wan\",\"lan\",\"wwan\"],\"description\":\"Safe OpenWrt interface name for interface-status and dhcp-status\"},\"wifi_interface\":{\"type\":\"string\",\"enum\":[\"wlan0\",\"wlan1\"],\"description\":\"Safe iwinfo interface name for wifi-metrics\"},\"service\":{\"type\":\"string\",\"enum\":[\"network\",\"dnsmasq\",\"firewall\",\"uhttpd\"],\"description\":\"Allowlisted OpenWrt service for service-restart\"},\"contains\":{\"type\":\"string\",\"description\":\"Safe substring filter for logs-recent output\"},\"level\":{\"type\":\"string\",\"enum\":[\"error\",\"warn\",\"info\",\"debug\"],\"description\":\"Best-effort log severity filter for logs-recent output\"},\"confirm\":{\"type\":\"boolean\",\"description\":\"Explicit operator confirmation for mutation actions\"},\"ssid\":{\"type\":\"string\",\"description\":\"Wi-Fi SSID for wifi-set\"},\"key\":{\"type\":\"string\",\"description\":\"Wi-Fi key for wifi-set\"},\"encryption\":{\"type\":\"string\",\"enum\":[\"none\",\"psk2\",\"sae-mixed\"]}},\"required\":[\"action\"]}");
+		return;
+	}
+	if (strcmp(name, "edgepulse.uci.get") == 0) {
+		printf("{\"type\":\"object\",\"properties\":{\"config\":{\"type\":\"string\",\"enum\":[\"edgepulse\",\"network-wan\",\"network-lan\",\"network-wwan\",\"wireless-basic\"],\"description\":\"Controlled UCI read target\"}},\"required\":[\"config\"]}");
 		return;
 	}
 	printf("{\"type\":\"object\",\"properties\":{}}");
@@ -4195,6 +4290,8 @@ static void print_agent_mcp_tools_array(void)
 		print_agent_mcp_tool_entry("edgepulse.ubus.status.wireless", "Read OpenWrt wireless status through allowed ubus method", &first);
 	if (agent_mcp_method_allowed(&agent, "edgepulse.uci.get.edgepulse"))
 		print_agent_mcp_tool_entry("edgepulse.uci.get.edgepulse", "Read EdgePulse UCI configuration", &first);
+	if (agent_mcp_method_allowed(&agent, "edgepulse.uci.get"))
+		print_agent_mcp_tool_entry("edgepulse.uci.get", "Read controlled allowlisted UCI configuration", &first);
 	printf("]");
 }
 
@@ -4241,6 +4338,108 @@ static int print_agent_mcp_tool_call(const char *method, const char *tool_name,
 	printf("\n");
 	printf("}\n");
 	return strcmp(result.status, "ok") == 0 ? 0 : 1;
+}
+
+static int print_agent_mcp_uci_get(const char *config)
+{
+	struct agent_config agent;
+	struct agent_model_config model;
+	struct agent_tool_result results[4];
+	char request_id[64];
+	int result_count = 0;
+	int ok = 1;
+	char *const edgepulse_argv[] = { "uci", "show", "edgepulse", NULL };
+	char *const network_wan_argv[] = { "uci", "show", "network.wan", NULL };
+	char *const network_lan_argv[] = { "uci", "show", "network.lan", NULL };
+	char *const network_wwan_argv[] = { "uci", "show", "network.wwan", NULL };
+	char *const wireless_ssid_argv[] = { "uci", "get", "wireless.@wifi-iface[0].ssid", NULL };
+	char *const wireless_encryption_argv[] = { "uci", "get", "wireless.@wifi-iface[0].encryption", NULL };
+	char *const wireless_disabled_argv[] = { "uci", "get", "wireless.@wifi-iface[0].disabled", NULL };
+
+	read_agent_config(&agent, &model);
+	agent_make_request_id(request_id, sizeof(request_id));
+	if (!agent.mcp_enabled) {
+		printf("{ \"status\": \"disabled\", \"method\": \"edgepulse.uci.get\", \"answer\": \"EdgePulse local C MCP adapter is disabled by edgepulse.agent.mcp_enabled.\" }\n");
+		return 0;
+	}
+	if (!agent_mcp_method_allowed(&agent, "edgepulse.uci.get")) {
+		printf("{ \"status\": \"disabled_by_policy\", \"method\": \"edgepulse.uci.get\", \"answer\": \"This MCP method is disabled by EdgePulse UCI method-level ACLs.\" }\n");
+		return 0;
+	}
+	if (!config)
+		config = "edgepulse";
+
+	agent_store_audit(agent.db_path, request_id, "mcp.call", "edgepulse.uci.get");
+	if (strcmp(config, "edgepulse") == 0) {
+		agent_run_read_only_command("uci.edgepulse.show", edgepulse_argv,
+					    agent.tool_timeout_sec,
+					    agent.max_tool_output_bytes,
+					    &results[result_count++]);
+	} else if (strcmp(config, "network-wan") == 0) {
+		agent_run_read_only_command("uci.network.wan.show", network_wan_argv,
+					    agent.tool_timeout_sec,
+					    agent.max_tool_output_bytes,
+					    &results[result_count++]);
+	} else if (strcmp(config, "network-lan") == 0) {
+		agent_run_read_only_command("uci.network.lan.show", network_lan_argv,
+					    agent.tool_timeout_sec,
+					    agent.max_tool_output_bytes,
+					    &results[result_count++]);
+	} else if (strcmp(config, "network-wwan") == 0) {
+		agent_run_read_only_command("uci.network.wwan.show", network_wwan_argv,
+					    agent.tool_timeout_sec,
+					    agent.max_tool_output_bytes,
+					    &results[result_count++]);
+	} else if (strcmp(config, "wireless-basic") == 0) {
+		agent_run_read_only_command("uci.wireless.ssid.get",
+					    wireless_ssid_argv,
+					    agent.tool_timeout_sec,
+					    agent.max_tool_output_bytes,
+					    &results[result_count++]);
+		agent_run_read_only_command("uci.wireless.encryption.get",
+					    wireless_encryption_argv,
+					    agent.tool_timeout_sec,
+					    agent.max_tool_output_bytes,
+					    &results[result_count++]);
+		agent_run_read_only_command("uci.wireless.disabled.get",
+					    wireless_disabled_argv,
+					    agent.tool_timeout_sec,
+					    agent.max_tool_output_bytes,
+					    &results[result_count++]);
+	} else {
+		fprintf(stderr, "edgepulse-ctl: config must be edgepulse, network-wan, network-lan, network-wwan, or wireless-basic\n");
+		return 2;
+	}
+
+	for (int i = 0; i < result_count; i++) {
+		if (strcmp(results[i].status, "ok") != 0)
+			ok = 0;
+		agent_store_audit(agent.db_path, request_id, results[i].name,
+				  results[i].status);
+	}
+
+	printf("{\n");
+	printf("  \"status\": ");
+	print_json_string(ok ? "ok" : "error");
+	printf(",\n");
+	printf("  \"request_id\": ");
+	print_json_string(request_id);
+	printf(",\n");
+	printf("  \"method\": \"edgepulse.uci.get\",\n");
+	printf("  \"config\": ");
+	print_json_string(config);
+	printf(",\n");
+	printf("  \"tools\": [\n");
+	for (int i = 0; i < result_count; i++) {
+		if (i > 0)
+			printf(",\n");
+		printf("    ");
+		print_agent_tool_json(&results[i]);
+	}
+	printf("\n");
+	printf("  ]\n");
+	printf("}\n");
+	return ok ? 0 : 1;
 }
 
 static int EDGEPULSE_AGENT_UNUSED handle_agent_mcp_call(int argc, char **argv)
@@ -4313,7 +4512,7 @@ static int EDGEPULSE_AGENT_UNUSED handle_agent_mcp_call(int argc, char **argv)
 		return print_agent_skill_run(skill_argc, skill_argv);
 	}
 	if (strcmp(method, "edgepulse.agent.action.run") == 0) {
-		char *action_argv[16];
+		char *action_argv[24];
 		int action_argc = 4;
 
 		if (argc < 6) {
@@ -4324,7 +4523,7 @@ static int EDGEPULSE_AGENT_UNUSED handle_agent_mcp_call(int argc, char **argv)
 		action_argv[1] = argv[1];
 		action_argv[2] = "action";
 		action_argv[3] = argv[5];
-		for (int i = 6; i < argc && action_argc < 15; i++)
+		for (int i = 6; i < argc && action_argc < 23; i++)
 			action_argv[action_argc++] = argv[i];
 		action_argv[action_argc] = NULL;
 		return print_agent_action(action_argc, action_argv);
@@ -4339,10 +4538,14 @@ static int EDGEPULSE_AGENT_UNUSED handle_agent_mcp_call(int argc, char **argv)
 		return print_agent_mcp_tool_call(method, "ubus.network.wireless.status",
 						 ubus_wireless_argv);
 	}
-	if (strcmp(method, "edgepulse.uci.get.edgepulse") == 0) {
-		char *const uci_argv[] = { "uci", "show", "edgepulse", NULL };
-		return print_agent_mcp_tool_call(method, "uci.edgepulse.show",
-						 uci_argv);
+	if (strcmp(method, "edgepulse.uci.get.edgepulse") == 0)
+		return print_agent_mcp_uci_get("edgepulse");
+	if (strcmp(method, "edgepulse.uci.get") == 0) {
+		if (argc < 6) {
+			fprintf(stderr, "Usage: edgepulse-ctl agent mcp call edgepulse.uci.get <config>\n");
+			return 2;
+		}
+		return print_agent_mcp_uci_get(argv[5]);
 	}
 
 	printf("{ \"status\": \"error\", \"method\": ");
@@ -4610,15 +4813,17 @@ static void handle_agent_mcp_jsonrpc_line(const char *line)
 	char message[1024] = "";
 	char action[64] = "";
 	char skill_id[128] = "";
+	char config[64] = "";
 	char interface[32] = "";
 	char wifi_interface[32] = "";
+	char service[32] = "";
 	char ssid[128] = "";
 	char key[128] = "";
 	char encryption[64] = "";
 	char contains[128] = "";
 	char level[32] = "";
 	char captured[16384];
-	char *call_argv[20];
+	char *call_argv[24];
 	int call_argc = 0;
 	int confirm = 0;
 
@@ -4738,6 +4943,11 @@ static void handle_agent_mcp_jsonrpc_line(const char *line)
 			call_argv[call_argc++] = "--wifi-interface";
 			call_argv[call_argc++] = wifi_interface;
 		}
+		if (json_extract_string_field(line, "service", service,
+					      sizeof(service)) == 0) {
+			call_argv[call_argc++] = "--service";
+			call_argv[call_argc++] = service;
+		}
 		if (json_extract_string_field(line, "contains", contains,
 					      sizeof(contains)) == 0) {
 			call_argv[call_argc++] = "--contains";
@@ -4748,6 +4958,14 @@ static void handle_agent_mcp_jsonrpc_line(const char *line)
 			call_argv[call_argc++] = "--level";
 			call_argv[call_argc++] = level;
 		}
+	} else if (strcmp(name, "edgepulse.uci.get") == 0) {
+		if (json_extract_string_field(line, "config", config,
+					      sizeof(config)) != 0) {
+			print_mcp_jsonrpc_error(id, -32602,
+						"edgepulse.uci.get requires config");
+			return;
+		}
+		call_argv[call_argc++] = config;
 	}
 	call_argv[call_argc] = NULL;
 

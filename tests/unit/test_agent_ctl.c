@@ -599,6 +599,52 @@ static void test_agent_conversation_storage(void)
 	check_int("conversation message pair", count, 2);
 }
 
+static void test_agent_skill_run_storage(void)
+{
+	const char *path = "/tmp/edgepulse-agent-skill-run-test.db";
+	const struct agent_skill *skill = agent_find_skill("openwrt.status.summary");
+	sqlite3_int64 run_id;
+	sqlite3 *db = NULL;
+	sqlite3_stmt *stmt = NULL;
+	int count = 0;
+	int duration_ms = -1;
+
+	unlink(path);
+	run_id = agent_store_skill_run_start(path, "skill-req-1", skill,
+					     "unit start");
+	check_int("store skill run start", run_id > 0, 1);
+	check_int("store skill run finish",
+		  agent_store_skill_run_finish(path, run_id, "completed", 1234,
+					       "unit done"),
+		  0);
+	if (sqlite3_open(path, &db) != SQLITE_OK) {
+		fprintf(stderr, "FAIL open skill run db\n");
+		failures++;
+		return;
+	}
+	if (sqlite3_prepare_v2(db,
+			       "SELECT count(*), max(duration_ms) "
+			       "FROM agent_skill_runs "
+			       "WHERE request_id='skill-req-1' "
+			       "AND skill_id='openwrt.status.summary' "
+			       "AND status='completed';",
+			       -1, &stmt, NULL) != SQLITE_OK) {
+		fprintf(stderr, "FAIL prepare skill run count\n");
+		failures++;
+		sqlite3_close(db);
+		return;
+	}
+	if (sqlite3_step(stmt) == SQLITE_ROW) {
+		count = sqlite3_column_int(stmt, 0);
+		duration_ms = sqlite3_column_int(stmt, 1);
+	}
+	sqlite3_finalize(stmt);
+	sqlite3_close(db);
+	unlink(path);
+	check_int("skill run record count", count, 1);
+	check_int("skill run duration", duration_ms, 1234);
+}
+
 static void test_agent_mcp_json_helpers(void)
 {
 	char value[128];
@@ -645,6 +691,7 @@ int main(void)
 	test_agent_skill_registry();
 	test_agent_intent_and_redaction();
 	test_agent_conversation_storage();
+	test_agent_skill_run_storage();
 	test_agent_mcp_json_helpers();
 
 	if (failures != 0) {

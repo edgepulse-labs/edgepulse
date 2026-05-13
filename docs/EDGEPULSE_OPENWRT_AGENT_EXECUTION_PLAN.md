@@ -222,7 +222,7 @@ Confirmed mutation skills:
 - [x] Enforce timeouts at tool execution layer.
 - [x] Track tool result status and elapsed time.
 - [x] Post-verify WAN reconnect, Wi-Fi restart, and Wi-Fi set through status/ping checks.
-- [ ] Store explicit skill execution state records separate from generic audit rows.
+- [x] Store explicit skill execution state records separate from generic audit rows.
 - [ ] Add rollback metadata and rollback execution where safe.
 
 ### 6.3 Policy Engine
@@ -263,7 +263,7 @@ Checklist:
 - [x] Audit list CLI/MCP/ubus path exists.
 - [x] Sensitive Wi-Fi key output redaction.
 - [ ] Audit rows are append-only by convention, but need stronger immutability guarantees.
-- [ ] Add structured skill execution audit detail with duration/result fields.
+- [x] Add structured skill execution audit detail with duration/result fields.
 
 ## 7. MCP Integration
 
@@ -474,7 +474,7 @@ LLM safety boundary:
 Use this queue for the next implementation passes:
 
 - [ ] Add `json-c` based manifest and MCP request parsing when available, with fallback or build guards if needed.
-- [ ] Add structured skill execution records and rollback metadata.
+- [x] Add structured skill execution records and rollback metadata.
 - [ ] Add LuCI conversation selector and operation shortcut buttons.
 - [ ] Add LuCI confirmation UI for mutation actions.
 - [ ] Add rpcd ACL files in the OpenWrt feed.

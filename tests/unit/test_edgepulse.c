@@ -235,13 +235,14 @@ static void test_agent_schema_tables(void)
 		  sqlite3_prepare_v2(db,
 				     "SELECT count(*) FROM sqlite_master "
 				     "WHERE type = 'table' "
-				     "AND name IN ('agent_memory', 'agent_audit_log', 'agent_requests');",
+				     "AND name IN ('agent_memory', 'agent_audit_log', "
+				     "'agent_requests', 'agent_skill_runs');",
 				     -1, &stmt, NULL),
 		  SQLITE_OK);
 	rc = sqlite3_step(stmt);
 	check_int("agent schema query row", rc, SQLITE_ROW);
 	if (rc == SQLITE_ROW)
-		check_int("agent schema table count", sqlite3_column_int(stmt, 0), 3);
+		check_int("agent schema table count", sqlite3_column_int(stmt, 0), 4);
 
 	sqlite3_finalize(stmt);
 	sqlite3_close(db);

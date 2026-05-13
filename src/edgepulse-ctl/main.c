@@ -931,6 +931,76 @@ static int agent_store_request(const char *db_path, const char *request_id,
 	return rc == SQLITE_DONE ? 0 : -1;
 }
 
+static sqlite3_int64 agent_store_skill_run_start(const char *db_path,
+						 const char *request_id,
+						 const struct agent_skill *skill,
+						 const char *detail)
+{
+	static const char *sql =
+		"INSERT INTO agent_skill_runs(request_id, skill_id, action, status, "
+		"required_policy, requires_confirm, read_only, started_at, "
+		"rollback_action, detail) "
+		"VALUES(?, ?, ?, 'started', ?, ?, ?, strftime('%s','now'), ?, ?);";
+	sqlite3 *db = NULL;
+	sqlite3_stmt *stmt = NULL;
+	sqlite3_int64 id = -1;
+
+	if (!skill || edgepulse_init_database(db_path) != 0)
+		return -1;
+	if (sqlite3_open(db_path, &db) != SQLITE_OK)
+		return -1;
+	if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) != SQLITE_OK)
+		goto out;
+
+	sqlite3_bind_text(stmt, 1, request_id, -1, SQLITE_TRANSIENT);
+	sqlite3_bind_text(stmt, 2, skill->id, -1, SQLITE_TRANSIENT);
+	sqlite3_bind_text(stmt, 3, skill->action, -1, SQLITE_TRANSIENT);
+	sqlite3_bind_text(stmt, 4, skill->required_policy, -1, SQLITE_TRANSIENT);
+	sqlite3_bind_int(stmt, 5, skill->requires_confirm);
+	sqlite3_bind_int(stmt, 6, skill->read_only);
+	sqlite3_bind_text(stmt, 7, "", -1, SQLITE_TRANSIENT);
+	sqlite3_bind_text(stmt, 8, detail ? detail : "", -1, SQLITE_TRANSIENT);
+	if (sqlite3_step(stmt) == SQLITE_DONE)
+		id = sqlite3_last_insert_rowid(db);
+
+out:
+	if (stmt)
+		sqlite3_finalize(stmt);
+	sqlite3_close(db);
+	return id;
+}
+
+static int agent_store_skill_run_finish(const char *db_path, sqlite3_int64 id,
+					const char *status, long duration_ms,
+					const char *detail)
+{
+	static const char *sql =
+		"UPDATE agent_skill_runs SET status = ?, finished_at = strftime('%s','now'), "
+		"duration_ms = ?, detail = ? WHERE id = ?;";
+	sqlite3 *db = NULL;
+	sqlite3_stmt *stmt = NULL;
+	int rc = -1;
+
+	if (id < 0 || edgepulse_init_database(db_path) != 0)
+		return -1;
+	if (sqlite3_open(db_path, &db) != SQLITE_OK)
+		return -1;
+	if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) != SQLITE_OK)
+		goto out;
+
+	sqlite3_bind_text(stmt, 1, status ? status : "unknown", -1, SQLITE_TRANSIENT);
+	sqlite3_bind_int64(stmt, 2, duration_ms < 0 ? 0 : duration_ms);
+	sqlite3_bind_text(stmt, 3, detail ? detail : "", -1, SQLITE_TRANSIENT);
+	sqlite3_bind_int64(stmt, 4, id);
+	rc = sqlite3_step(stmt) == SQLITE_DONE ? 0 : -1;
+
+out:
+	if (stmt)
+		sqlite3_finalize(stmt);
+	sqlite3_close(db);
+	return rc;
+}
+
 static int agent_store_conversation_messages(const char *db_path,
 					     const char *conversation_id,
 					     const char *request_id,
@@ -4180,8 +4250,14 @@ static int EDGEPULSE_AGENT_UNUSED print_agent_skill_plan(const char *id)
 static int EDGEPULSE_AGENT_UNUSED print_agent_skill_run(int argc, char **argv)
 {
 	struct agent_skill_registry registry;
+	struct agent_config agent;
+	struct agent_model_config model;
 	const struct agent_skill *skill;
 	char *action_argv[AGENT_MAX_SKILL_ARGS];
+	char request_id[64];
+	sqlite3_int64 run_id;
+	time_t started_at;
+	int rc;
 	int action_argc = 4;
 
 	if (argc < 5) {
@@ -4200,6 +4276,13 @@ static int EDGEPULSE_AGENT_UNUSED print_agent_skill_run(int argc, char **argv)
 		return 0;
 	}
 
+	read_agent_config(&agent, &model);
+	agent_make_request_id(request_id, sizeof(request_id));
+	started_at = time(NULL);
+	run_id = agent_store_skill_run_start(agent.db_path, request_id, skill,
+					     "skill.run started");
+	agent_store_audit(agent.db_path, request_id, "skill.run.started", skill->id);
+
 	action_argv[0] = argv[0];
 	action_argv[1] = argv[1];
 	action_argv[2] = "action";
@@ -4207,7 +4290,15 @@ static int EDGEPULSE_AGENT_UNUSED print_agent_skill_run(int argc, char **argv)
 	for (int i = 5; i < argc && action_argc < AGENT_MAX_SKILL_ARGS - 1; i++)
 		action_argv[action_argc++] = argv[i];
 	action_argv[action_argc] = NULL;
-	return print_agent_action(action_argc, action_argv);
+	rc = print_agent_action(action_argc, action_argv);
+	agent_store_skill_run_finish(agent.db_path, run_id,
+				     rc == 0 ? "completed" : "error",
+				     (long)(time(NULL) - started_at) * 1000L,
+				     rc == 0 ? "skill.run completed" : "skill.run failed");
+	agent_store_audit(agent.db_path, request_id,
+			  rc == 0 ? "skill.run.completed" : "skill.run.error",
+			  skill->id);
+	return rc;
 }
 
 static int EDGEPULSE_AGENT_UNUSED handle_agent_skill_command(int argc, char **argv)

@@ -815,7 +815,26 @@ int edgepulse_init_database(const char *db_path)
 		"  FOREIGN KEY(conversation_id) REFERENCES agent_conversations(conversation_id)"
 		");"
 		"CREATE INDEX IF NOT EXISTS idx_agent_messages_conversation "
-		"ON agent_messages(conversation_id, created_at, id);";
+		"ON agent_messages(conversation_id, created_at, id);"
+		"CREATE TABLE IF NOT EXISTS agent_skill_runs ("
+		"  id INTEGER PRIMARY KEY AUTOINCREMENT,"
+		"  request_id TEXT NOT NULL,"
+		"  skill_id TEXT NOT NULL,"
+		"  action TEXT NOT NULL,"
+		"  status TEXT NOT NULL,"
+		"  required_policy TEXT NOT NULL,"
+		"  requires_confirm INTEGER NOT NULL DEFAULT 0,"
+		"  read_only INTEGER NOT NULL DEFAULT 1,"
+		"  started_at INTEGER NOT NULL,"
+		"  finished_at INTEGER NOT NULL DEFAULT 0,"
+		"  duration_ms INTEGER NOT NULL DEFAULT 0,"
+		"  rollback_action TEXT NOT NULL DEFAULT '',"
+		"  detail TEXT NOT NULL DEFAULT ''"
+		");"
+		"CREATE INDEX IF NOT EXISTS idx_agent_skill_runs_request "
+		"ON agent_skill_runs(request_id, started_at);"
+		"CREATE INDEX IF NOT EXISTS idx_agent_skill_runs_skill "
+		"ON agent_skill_runs(skill_id, started_at);";
 	sqlite3 *db = NULL;
 	char *errmsg = NULL;
 	int rc;

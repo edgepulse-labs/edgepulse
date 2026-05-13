@@ -116,6 +116,8 @@ struct agent_skill {
 	int read_only;
 	const char *steps[AGENT_MAX_SKILL_STEPS];
 	const char *source;
+	const char *version;
+	const char *source_path;
 };
 
 struct agent_manifest_skill {
@@ -127,6 +129,8 @@ struct agent_manifest_skill {
 	char required_policy[64];
 	char step_values[AGENT_MAX_SKILL_STEPS][96];
 	char source[128];
+	char version[32];
+	char source_path[512];
 };
 
 struct agent_skill_registry {
@@ -3789,7 +3793,9 @@ static const struct agent_skill agent_builtin_skills[] = {
 			"ubus.network.wireless.status",
 			NULL
 		},
-		.source = "builtin"
+		.source = "builtin",
+		.version = "builtin",
+		.source_path = ""
 	},
 	{
 		.id = "openwrt.wifi.status",
@@ -3803,7 +3809,9 @@ static const struct agent_skill agent_builtin_skills[] = {
 			"ubus.network.wireless.status",
 			NULL
 		},
-		.source = "builtin"
+		.source = "builtin",
+		.version = "builtin",
+		.source_path = ""
 	},
 	{
 		.id = "openwrt.wifi.metrics",
@@ -3818,7 +3826,9 @@ static const struct agent_skill agent_builtin_skills[] = {
 			"iwinfo.radio.assoclist",
 			NULL
 		},
-		.source = "builtin"
+		.source = "builtin",
+		.version = "builtin",
+		.source_path = ""
 	},
 	{
 		.id = "openwrt.interface.status",
@@ -3832,7 +3842,9 @@ static const struct agent_skill agent_builtin_skills[] = {
 			"ubus.network.interface.status",
 			NULL
 		},
-		.source = "builtin"
+		.source = "builtin",
+		.version = "builtin",
+		.source_path = ""
 	},
 	{
 		.id = "openwrt.dhcp.status",
@@ -3846,7 +3858,9 @@ static const struct agent_skill agent_builtin_skills[] = {
 			"ubus.network.interface.dhcp_state",
 			NULL
 		},
-		.source = "builtin"
+		.source = "builtin",
+		.version = "builtin",
+		.source_path = ""
 	},
 	{
 		.id = "openwrt.logs.recent",
@@ -3860,7 +3874,9 @@ static const struct agent_skill agent_builtin_skills[] = {
 			"shell.logread",
 			NULL
 		},
-		.source = "builtin"
+		.source = "builtin",
+		.version = "builtin",
+		.source_path = ""
 	},
 	{
 		.id = "openwrt.service.status",
@@ -3874,7 +3890,9 @@ static const struct agent_skill agent_builtin_skills[] = {
 			"ubus.service.list",
 			NULL
 		},
-		.source = "builtin"
+		.source = "builtin",
+		.version = "builtin",
+		.source_path = ""
 	},
 	{
 		.id = "openwrt.dns.diagnose",
@@ -3889,7 +3907,9 @@ static const struct agent_skill agent_builtin_skills[] = {
 			"net.ping.dns",
 			NULL
 		},
-		.source = "builtin"
+		.source = "builtin",
+		.version = "builtin",
+		.source_path = ""
 	},
 	{
 		.id = "openwrt.wan.reconnect",
@@ -3907,7 +3927,9 @@ static const struct agent_skill agent_builtin_skills[] = {
 			"net.ping.dns",
 			NULL
 		},
-		.source = "builtin"
+		.source = "builtin",
+		.version = "builtin",
+		.source_path = ""
 	},
 	{
 		.id = "openwrt.wifi.restart",
@@ -3922,7 +3944,9 @@ static const struct agent_skill agent_builtin_skills[] = {
 			"ubus.network.wireless.status",
 			NULL
 		},
-		.source = "builtin"
+		.source = "builtin",
+		.version = "builtin",
+		.source_path = ""
 	},
 	{
 		.id = "openwrt.wifi.set_ssid",
@@ -3942,7 +3966,9 @@ static const struct agent_skill agent_builtin_skills[] = {
 			"ubus.network.wireless.status",
 			NULL
 		},
-		.source = "builtin"
+		.source = "builtin",
+		.version = "builtin",
+		.source_path = ""
 	},
 	{
 		.id = "openwrt.service.restart",
@@ -3957,7 +3983,9 @@ static const struct agent_skill agent_builtin_skills[] = {
 			"ubus.service.list",
 			NULL
 		},
-		.source = "builtin"
+		.source = "builtin",
+		.version = "builtin",
+		.source_path = ""
 	},
 };
 
@@ -4023,11 +4051,15 @@ static void agent_bind_manifest_skill(struct agent_manifest_skill *manifest)
 	manifest->skill.action = manifest->action;
 	manifest->skill.required_policy = manifest->required_policy;
 	manifest->skill.source = manifest->source;
+	manifest->skill.version = manifest->version;
+	manifest->skill.source_path = manifest->source_path;
 	for (int i = 0; i < AGENT_MAX_SKILL_STEPS && manifest->step_values[i][0]; i++)
 		manifest->skill.steps[i] = manifest->step_values[i];
 }
 
-static int agent_load_manifest_skill(const char *source_name, const char *json,
+static int agent_load_manifest_skill(const char *source_name,
+				     const char *source_path,
+				     const char *json,
 				     struct agent_manifest_skill *manifest)
 {
 	int confirm = 0;
@@ -4053,6 +4085,9 @@ static int agent_load_manifest_skill(const char *source_name, const char *json,
 	if (strcmp(manifest->required_policy, "read_only") != 0 &&
 	    strcmp(manifest->required_policy, "operator_confirmed") != 0)
 		return -1;
+	if (json_extract_string_field(json, "version", manifest->version,
+				      sizeof(manifest->version)) != 0)
+		snprintf(manifest->version, sizeof(manifest->version), "%s", "1");
 	confirm = strcmp(manifest->required_policy, "operator_confirmed") == 0;
 	read_only = strcmp(manifest->required_policy, "read_only") == 0;
 	if (json_extract_bool_field(json, "requires_confirm", &confirm) == 0 &&
@@ -4067,6 +4102,8 @@ static int agent_load_manifest_skill(const char *source_name, const char *json,
 
 	snprintf(manifest->source, sizeof(manifest->source), "%s",
 		 source_name ? source_name : "manifest");
+	snprintf(manifest->source_path, sizeof(manifest->source_path), "%s",
+		 source_path ? source_path : (source_name ? source_name : "manifest"));
 	manifest->skill.requires_confirm = confirm;
 	manifest->skill.read_only = read_only;
 	manifest->skill.steps[step_count] = NULL;
@@ -4099,7 +4136,7 @@ static void agent_load_skill_registry(struct agent_skill_registry *registry)
 		snprintf(path, sizeof(path), "%s/%s", dir_path, entry->d_name);
 		if (agent_read_file_limited(path, json, sizeof(json)) != 0)
 			continue;
-		if (agent_load_manifest_skill(entry->d_name, json, &candidate) != 0)
+		if (agent_load_manifest_skill(entry->d_name, path, json, &candidate) != 0)
 			continue;
 		if (agent_find_skill(candidate.id))
 			continue;
@@ -4173,6 +4210,10 @@ static void print_agent_skill_json(const struct agent_config *agent,
 	printf(", \"read_only\": %s", skill->read_only ? "true" : "false");
 	printf(", \"source\": ");
 	print_json_string(skill->source ? skill->source : "builtin");
+	printf(", \"version\": ");
+	print_json_string(skill->version ? skill->version : "1");
+	printf(", \"source_path\": ");
+	print_json_string(skill->source_path ? skill->source_path : "");
 	printf(", \"allowed\": %s", agent_skill_allowed(agent, skill) ? "true" : "false");
 	if (include_steps) {
 		printf(", \"steps\": [");

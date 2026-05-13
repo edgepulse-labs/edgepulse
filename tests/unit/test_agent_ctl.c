@@ -453,6 +453,7 @@ static void test_agent_skill_registry(void)
 	fputs("{"
 	      "\"id\":\"custom.status\","
 	      "\"title\":\"Custom Status\","
+	      "\"version\":\"2\","
 	      "\"description\":\"Custom read-only status wrapper\","
 	      "\"action\":\"status\","
 	      "\"required_policy\":\"read_only\","
@@ -491,6 +492,10 @@ static void test_agent_skill_registry(void)
 		     manifest_skill ? manifest_skill->action : "", "status");
 	check_string("manifest skill source",
 		     manifest_skill ? manifest_skill->source : "", "custom.json");
+	check_string("manifest skill version",
+		     manifest_skill ? manifest_skill->version : "", "2");
+	check_string("manifest skill source path",
+		     manifest_skill ? manifest_skill->source_path : "", manifest_path);
 	check_int("blocked manifest not loaded",
 		  agent_find_manifest_skill(&registry, "custom.blocked") == NULL, 1);
 }

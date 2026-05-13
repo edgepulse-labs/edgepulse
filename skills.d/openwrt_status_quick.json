@@ -1,6 +1,7 @@
 {
   "id": "openwrt.status.quick",
   "title": "Quick OpenWrt Status",
+  "version": "1",
   "description": "Manifest-loaded read-only status skill that maps to the fixed EdgePulse status action.",
   "action": "status",
   "required_policy": "read_only",

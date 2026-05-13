@@ -154,6 +154,7 @@ Current MVP manifest format maps a skill to a fixed local action:
 {
   "id": "openwrt.status.quick",
   "title": "Quick OpenWrt Status",
+  "version": "1",
   "description": "Manifest-loaded read-only status skill.",
   "action": "status",
   "required_policy": "read_only",
@@ -181,7 +182,7 @@ Checklist:
 - [x] Package install copies `skills.d/*.json` to `/usr/share/edgepulse/skills.d`.
 - [ ] Add strict schema validation with better error reporting for invalid manifests.
 - [ ] Add manifest `inputs_schema` support for validated action parameters.
-- [ ] Add skill version tracking.
+- [x] Add skill version tracking.
 - [ ] Add richer step metadata for policy, timeout, rollback, and verification.
 
 ### Initial Skill Set
@@ -213,7 +214,7 @@ Confirmed mutation skills:
 - [x] Map skill IDs to actions.
 - [x] Expose skill metadata.
 - [ ] Validate full schemas, including inputs and steps.
-- [ ] Track manifest version and source path.
+- [x] Track manifest version and source path.
 
 ### 6.2 Skill Runner
 

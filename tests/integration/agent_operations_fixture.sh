@@ -67,6 +67,7 @@ cat >"$BIN_DIR/logread" <<'EOF_LOGREAD'
 #!/bin/sh
 printf 'edgepulse-agent: fixture recent log\n'
 printf 'daemon.err edgepulse-agent: api_key=fixture-api-key token=fixture-token failed to reach backend\n'
+printf 'daemon.err pppd: pppoe_username=fixture-user pppoe_password=fixture-pass\n'
 printf 'daemon.warn netifd: wan warning recovered\n'
 printf 'daemon.info edgepulse-agent: routine status ok\n'
 EOF_LOGREAD
@@ -161,6 +162,16 @@ printf '%s\n' "$logs_out" | grep -q 'fixture-token' &&
 	fail "logs-recent leaked token"
 printf '%s\n' "$logs_out" | grep -q 'api_key=redacted' ||
 	fail "logs-recent did not redact API key"
+
+pppoe_logs_out="$("$ROOT/edgepulse-ctl" agent action logs-recent --contains pppd --level error)"
+printf '%s\n' "$pppoe_logs_out" | grep -q 'fixture-user' &&
+	fail "logs-recent leaked PPPoE username"
+printf '%s\n' "$pppoe_logs_out" | grep -q 'fixture-pass' &&
+	fail "logs-recent leaked PPPoE password"
+printf '%s\n' "$pppoe_logs_out" | grep -q 'pppoe_username=redacted' ||
+	fail "logs-recent did not redact PPPoE username"
+printf '%s\n' "$pppoe_logs_out" | grep -q 'pppoe_password=redacted' ||
+	fail "logs-recent did not redact PPPoE password"
 
 wifi_metrics_out="$("$ROOT/edgepulse-ctl" agent action wifi-metrics --wifi-interface wlan0)"
 printf '%s\n' "$wifi_metrics_out" | grep -q '"action": "wifi-metrics"' ||

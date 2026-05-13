@@ -539,6 +539,24 @@ static void test_agent_intent_and_redaction(void)
 		failures++;
 	}
 
+	redact_sensitive_output("pppoe_username=isp-user pppoe_password=isp-pass\n",
+				redacted, sizeof(redacted));
+	check_contains("redact pppoe username", redacted, "pppoe_username=redacted");
+	check_contains("redact pppoe password", redacted, "pppoe_password=redacted");
+	if (strstr(redacted, "isp-user") || strstr(redacted, "isp-pass")) {
+		fprintf(stderr, "FAIL PPPoE redaction secret remained: %s\n", redacted);
+		failures++;
+	}
+
+	redact_sensitive_output("before\n-----BEGIN OPENSSH PRIVATE KEY-----\nabc123\n-----END OPENSSH PRIVATE KEY-----\nafter",
+				redacted, sizeof(redacted));
+	check_contains("redact ssh private key", redacted, "private_key=redacted");
+	check_contains("redact ssh keeps suffix", redacted, "after");
+	if (strstr(redacted, "abc123") || strstr(redacted, "BEGIN OPENSSH")) {
+		fprintf(stderr, "FAIL SSH private key redaction secret remained: %s\n", redacted);
+		failures++;
+	}
+
 	check_int("safe log contains filter",
 		  agent_log_filter_value_is_safe("edgepulse-agent backend"), 1);
 	check_int("unsafe log contains filter",

@@ -269,23 +269,31 @@ static int redact_pattern_matches(const char *p, const char **replacement,
 		{ "access_token=", "access_token=redacted" },
 		{ "password=", "password=redacted" },
 		{ "secret=", "secret=redacted" },
+		{ "pppoe_username=", "pppoe_username=redacted" },
 		{ "pppoe_password=", "pppoe_password=redacted" },
+		{ "username=", "username=redacted" },
 		{ "option api_key ", "option api_key redacted" },
 		{ "option token ", "option token redacted" },
 		{ "option password ", "option password redacted" },
+		{ "option pppoe_username ", "option pppoe_username redacted" },
 		{ "option pppoe_password ", "option pppoe_password redacted" },
+		{ "option username ", "option username redacted" },
 		{ "\"api_key\":\"", "\"api_key\":\"redacted\"" },
 		{ "\"token\":\"", "\"token\":\"redacted\"" },
 		{ "\"access_token\":\"", "\"access_token\":\"redacted\"" },
 		{ "\"password\":\"", "\"password\":\"redacted\"" },
 		{ "\"secret\":\"", "\"secret\":\"redacted\"" },
+		{ "\"pppoe_username\":\"", "\"pppoe_username\":\"redacted\"" },
 		{ "\"pppoe_password\":\"", "\"pppoe_password\":\"redacted\"" },
+		{ "\"username\":\"", "\"username\":\"redacted\"" },
 		{ "\\\"api_key\\\":\\\"", "\\\"api_key\\\":\\\"redacted\\\"" },
 		{ "\\\"token\\\":\\\"", "\\\"token\\\":\\\"redacted\\\"" },
 		{ "\\\"access_token\\\":\\\"", "\\\"access_token\\\":\\\"redacted\\\"" },
 		{ "\\\"password\\\":\\\"", "\\\"password\\\":\\\"redacted\\\"" },
 		{ "\\\"secret\\\":\\\"", "\\\"secret\\\":\\\"redacted\\\"" },
+		{ "\\\"pppoe_username\\\":\\\"", "\\\"pppoe_username\\\":\\\"redacted\\\"" },
 		{ "\\\"pppoe_password\\\":\\\"", "\\\"pppoe_password\\\":\\\"redacted\\\"" },
+		{ "\\\"username\\\":\\\"", "\\\"username\\\":\\\"redacted\\\"" },
 	};
 
 	for (size_t i = 0; i < sizeof(patterns) / sizeof(patterns[0]); i++) {
@@ -299,9 +307,67 @@ static int redact_pattern_matches(const char *p, const char **replacement,
 	return 0;
 }
 
+static int redact_private_key_block(const char *input, char *out, size_t out_size)
+{
+	const char *markers[] = {
+		"-----BEGIN OPENSSH PRIVATE KEY-----",
+		"-----BEGIN RSA PRIVATE KEY-----",
+		"-----BEGIN EC PRIVATE KEY-----",
+		"-----BEGIN DSA PRIVATE KEY-----",
+		"-----BEGIN PRIVATE KEY-----",
+	};
+	const char *replacement = "private_key=redacted";
+	const char *p = input ? input : "";
+	size_t used = 0;
+	int changed = 0;
+
+	if (!out || out_size == 0)
+		return 0;
+
+	while (*p && used + 1 < out_size) {
+		int matched = 0;
+		for (size_t i = 0; i < sizeof(markers) / sizeof(markers[0]); i++) {
+			size_t marker_len = strlen(markers[i]);
+			if (strncmp(p, markers[i], marker_len) == 0) {
+				const char *end = strstr(p + marker_len, "-----END ");
+				int written;
+				if (end) {
+					const char *after = end;
+					while (*after && *after != '\n' && *after != '\r')
+						after++;
+					p = after;
+				} else {
+					while (*p && *p != '\n' && *p != '\r')
+						p++;
+				}
+				written = snprintf(out + used, out_size - used, "%s",
+						   replacement);
+				if (written < 0)
+					goto done;
+				if ((size_t)written >= out_size - used) {
+					used = out_size - 1;
+					goto done;
+				}
+				used += (size_t)written;
+				changed = 1;
+				matched = 1;
+				break;
+			}
+		}
+		if (matched)
+			continue;
+		out[used++] = *p++;
+	}
+
+done:
+	out[used] = '\0';
+	return changed;
+}
+
 static void redact_sensitive_output(const char *input, char *out, size_t out_size)
 {
 	char wifi_redacted[2048];
+	char key_redacted[2048];
 	const char *p;
 	size_t used = 0;
 
@@ -309,7 +375,8 @@ static void redact_sensitive_output(const char *input, char *out, size_t out_siz
 		return;
 
 	redact_wifi_keys(input, wifi_redacted, sizeof(wifi_redacted));
-	p = wifi_redacted;
+	redact_private_key_block(wifi_redacted, key_redacted, sizeof(key_redacted));
+	p = key_redacted;
 
 	while (*p && used + 1 < out_size) {
 		const char *replacement = NULL;

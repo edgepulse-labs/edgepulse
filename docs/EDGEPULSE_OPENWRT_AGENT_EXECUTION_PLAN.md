@@ -51,7 +51,7 @@ Checklist:
 - [x] MCP method ACLs exist in UCI-backed agent config.
 - [x] Sensitive Wi-Fi keys are redacted from tool output.
 - [x] AI/model responses are advisory and do not bypass policy/action gates.
-- [ ] Add more complete redaction for tokens, SSH keys, API keys, and PPPoE credentials beyond current key-focused coverage.
+- [x] Add more complete redaction for tokens, SSH keys, API keys, and PPPoE credentials beyond current key-focused coverage.
 - [ ] Add failure recovery and rollback tracking for multi-step mutation actions.
 
 ### 2.2 OpenWrt-Native
@@ -371,7 +371,7 @@ Secret protection:
 
 - [x] Wi-Fi password redaction in UCI-style and JSON-ish outputs.
 - [x] Model API key is redacted in status/model output.
-- [ ] Token/API-key/SSH/PPPoE redaction coverage.
+- [x] Token/API-key/SSH/PPPoE redaction coverage.
 
 LLM safety boundary:
 

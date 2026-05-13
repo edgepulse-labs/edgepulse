@@ -184,6 +184,18 @@ printf '%s\n' "$service_restart_out" | grep -q 'service dnsmasq restart' ||
 printf '%s\n' "$service_restart_out" | grep -q '"name": "ubus.service.list"' ||
 	fail "service-restart did not verify service list"
 
+firewall_out="$("$ROOT/edgepulse-ctl" agent action firewall-change --confirm)"
+printf '%s\n' "$firewall_out" | grep -q '"status": "restricted_by_policy"' ||
+	fail "firewall-change did not return restricted policy stub"
+printf '%s\n' "$firewall_out" | grep -q 'firewall_change' ||
+	fail "firewall-change did not report firewall category"
+
+package_out="$("$ROOT/edgepulse-ctl" agent action package-install --confirm)"
+printf '%s\n' "$package_out" | grep -q '"status": "restricted_by_policy"' ||
+	fail "package-install did not return restricted policy stub"
+printf '%s\n' "$package_out" | grep -q 'package_install_remove' ||
+	fail "package-install did not report package category"
+
 wifi_restart_out="$("$ROOT/edgepulse-ctl" agent action wifi-restart --confirm)"
 printf '%s\n' "$wifi_restart_out" | grep -q '"action": "wifi-restart"' ||
 	fail "wifi-restart did not complete action path"

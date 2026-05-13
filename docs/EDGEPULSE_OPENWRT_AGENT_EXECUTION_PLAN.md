@@ -116,7 +116,7 @@ OpenWrt capability layer:
 - [x] iwinfo wrapper for detailed Wi-Fi radio/station metrics.
 - [x] procd wrapper for allowlisted service restart.
 - [ ] procd wrapper for service enable/disable with admin policy.
-- [ ] controlled firewall/package-operation policy stubs that explicitly remain restricted.
+- [x] controlled firewall/package-operation policy stubs that explicitly remain restricted.
 
 ## 4. Directory Structure Checklist
 
@@ -242,7 +242,7 @@ Checklist:
 - [x] Per-action switches for WAN reconnect, Wi-Fi restart, and Wi-Fi set.
 - [x] Command allowlists for read-only tools.
 - [x] Command allowlists for mutation tools.
-- [ ] Add explicit `admin_only` and `restricted` enforcement semantics.
+- [x] Add explicit `admin_only` and `restricted` enforcement semantics for firewall/package stubs.
 - [ ] Add policy visualization in LuCI.
 
 ### 6.4 Confirmation Gate

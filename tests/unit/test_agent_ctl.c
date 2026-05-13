@@ -116,6 +116,12 @@ static void test_agent_policy_allowlist(void)
 	check_int("unsafe phy0-ap0 interface", agent_wifi_interface_is_safe("phy0-ap0"), 0);
 	check_int("safe dnsmasq service", agent_service_is_safe("dnsmasq"), 1);
 	check_int("unsafe dropbear service", agent_service_is_safe("dropbear"), 0);
+	check_int("restricted firewall action",
+		  agent_action_is_restricted_stub("firewall-change"), 1);
+	check_int("restricted package action",
+		  agent_action_is_restricted_stub("package-install"), 1);
+	check_int("non-restricted status action",
+		  agent_action_is_restricted_stub("status"), 0);
 }
 
 static void test_agent_tool_execution(void)
@@ -499,6 +505,10 @@ static void test_agent_intent_and_redaction(void)
 		     agent_classify_intent("show recent abnormal logs"), "logs-recent");
 	check_string("classify reconnect",
 		     agent_classify_intent("幫我重新撥接網路"), "reconnect-wan");
+	check_string("classify firewall restricted",
+		     agent_classify_intent("please change firewall rules"), "firewall-change");
+	check_string("classify package restricted",
+		     agent_classify_intent("opkg install tcpdump"), "package-install");
 	check_string("classify status",
 		     agent_classify_intent("router health status"), "status");
 	check_string("classify unknown",

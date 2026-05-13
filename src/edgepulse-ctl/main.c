@@ -707,7 +707,9 @@ static int agent_config_has_warnings(const struct agent_config *agent,
 				     const struct agent_model_config *model)
 {
 	if (strcmp(agent->policy_profile, "read_only") != 0 &&
-	    strcmp(agent->policy_profile, "operator_confirmed") != 0)
+	    strcmp(agent->policy_profile, "operator_confirmed") != 0 &&
+	    strcmp(agent->policy_profile, "admin_only") != 0 &&
+	    strcmp(agent->policy_profile, "restricted") != 0)
 		return 1;
 	if (agent->request_timeout_sec < 1 || agent->request_timeout_sec > 600)
 		return 1;
@@ -742,8 +744,10 @@ static void print_agent_validation(const struct agent_config *agent,
 	} while (0)
 
 	if (strcmp(agent->policy_profile, "read_only") != 0 &&
-	    strcmp(agent->policy_profile, "operator_confirmed") != 0)
-		PRINT_VALIDATION_WARNING("Only the read_only and operator_confirmed policy profiles are supported by the current MVP.");
+	    strcmp(agent->policy_profile, "operator_confirmed") != 0 &&
+	    strcmp(agent->policy_profile, "admin_only") != 0 &&
+	    strcmp(agent->policy_profile, "restricted") != 0)
+		PRINT_VALIDATION_WARNING("Supported policy profiles are read_only, operator_confirmed, admin_only, and restricted.");
 	if (agent->request_timeout_sec < 1 || agent->request_timeout_sec > 600)
 		PRINT_VALIDATION_WARNING("request_timeout_sec should be between 1 and 600 seconds.");
 	if (agent->tool_timeout_sec < 1 || agent->tool_timeout_sec > 60)
@@ -2967,6 +2971,16 @@ static int agent_policy_allows_mutation(const struct agent_config *agent)
 	return strcmp(agent->policy_profile, "operator_confirmed") == 0;
 }
 
+static int agent_policy_is_admin_only(const struct agent_config *agent)
+{
+	return strcmp(agent->policy_profile, "admin_only") == 0;
+}
+
+static int agent_policy_is_restricted(const struct agent_config *agent)
+{
+	return strcmp(agent->policy_profile, "restricted") == 0;
+}
+
 static int agent_interface_is_safe(const char *interface)
 {
 	return interface &&
@@ -3097,10 +3111,30 @@ static void agent_filter_log_output(struct agent_tool_result *result,
 	snprintf(result->output, sizeof(result->output), "%s", filtered);
 }
 
+static int agent_action_is_restricted_stub(const char *action)
+{
+	return action &&
+		(strcmp(action, "firewall-change") == 0 ||
+		 strcmp(action, "package-install") == 0 ||
+		 strcmp(action, "package-remove") == 0);
+}
+
 static const char *agent_classify_intent(const char *message)
 {
 	if (!message || message[0] == '\0')
 		return NULL;
+
+	if (agent_text_contains_ci(message, "firewall") ||
+	    strstr(message, "防火牆"))
+		return "firewall-change";
+	if (agent_text_contains_ci(message, "install package") ||
+	    agent_text_contains_ci(message, "opkg install") ||
+	    strstr(message, "安裝套件"))
+		return "package-install";
+	if (agent_text_contains_ci(message, "remove package") ||
+	    agent_text_contains_ci(message, "opkg remove") ||
+	    strstr(message, "移除套件"))
+		return "package-remove";
 
 	if ((agent_text_contains_ci(message, "wifi") ||
 	     strstr(message, "Wi-Fi") || strstr(message, "無線")) &&
@@ -3167,6 +3201,22 @@ static void print_agent_action_disabled(const char *action)
 	printf("}\n");
 }
 
+static void print_agent_action_restricted(const char *action,
+					  const char *category)
+{
+	printf("{\n");
+	printf("  \"status\": \"restricted_by_policy\",\n");
+	printf("  \"action\": ");
+	print_json_string(action);
+	printf(",\n");
+	printf("  \"required_policy_profile\": \"admin_only\",\n");
+	printf("  \"category\": ");
+	print_json_string(category);
+	printf(",\n");
+	printf("  \"answer\": \"This action is an explicit restricted stub. EdgePulse does not execute firewall or package mutations in the current local agent.\"\n");
+	printf("}\n");
+}
+
 static void print_agent_action_result(const char *action,
 				      const char *request_id,
 				      struct agent_tool_result *results,
@@ -3222,7 +3272,7 @@ static int EDGEPULSE_AGENT_UNUSED print_agent_action(int argc, char **argv)
 	int result_count = 0;
 
 	if (argc < 4) {
-		fprintf(stderr, "Usage: edgepulse-ctl agent action <status|interface-status|dhcp-status|wifi-status|wifi-metrics|logs-recent|service-status|dns-diagnose|reconnect-wan|wifi-restart|wifi-set|service-restart> [--confirm] [--service name] [--contains text] [--level error|warn|info|debug] [options]\n");
+		fprintf(stderr, "Usage: edgepulse-ctl agent action <status|interface-status|dhcp-status|wifi-status|wifi-metrics|logs-recent|service-status|dns-diagnose|reconnect-wan|wifi-restart|wifi-set|service-restart|firewall-change|package-install|package-remove> [--confirm] [--service name] [--contains text] [--level error|warn|info|debug] [options]\n");
 		return 2;
 	}
 
@@ -3238,6 +3288,14 @@ static int EDGEPULSE_AGENT_UNUSED print_agent_action(int argc, char **argv)
 	agent_store_audit(agent.db_path, request_id, "action.requested", action);
 	agent_syslog(LOG_INFO, "action requested request_id=%s action=%s policy=%s",
 		     request_id, action, agent.policy_profile);
+
+	if (agent_action_is_restricted_stub(action)) {
+		agent_store_audit(agent.db_path, request_id, "action.restricted", action);
+		print_agent_action_restricted(action,
+					      strcmp(action, "firewall-change") == 0 ?
+					      "firewall_change" : "package_install_remove");
+		return 0;
+	}
 
 	if (strcmp(action, "status") == 0 ||
 	    strcmp(action, "interface-status") == 0 ||
@@ -3575,7 +3633,7 @@ static int EDGEPULSE_AGENT_UNUSED print_agent_action(int argc, char **argv)
 		return 0;
 	}
 
-	fprintf(stderr, "Usage: edgepulse-ctl agent action <status|interface-status|dhcp-status|wifi-status|wifi-metrics|logs-recent|service-status|dns-diagnose|reconnect-wan|wifi-restart|wifi-set|service-restart> [--confirm] [--service name] [--contains text] [--level error|warn|info|debug] [options]\n");
+	fprintf(stderr, "Usage: edgepulse-ctl agent action <status|interface-status|dhcp-status|wifi-status|wifi-metrics|logs-recent|service-status|dns-diagnose|reconnect-wan|wifi-restart|wifi-set|service-restart|firewall-change|package-install|package-remove> [--confirm] [--service name] [--contains text] [--level error|warn|info|debug] [options]\n");
 	return 2;
 }
 
@@ -4113,8 +4171,13 @@ static int EDGEPULSE_AGENT_UNUSED print_agent_policy(void)
 	print_json_string(agent.policy_profile);
 	printf(",\n");
 	printf("  \"mode\": ");
-	print_json_string(agent_policy_allows_mutation(&agent) ?
-			  "operator_confirmed" : "read_only");
+	if (agent_policy_is_restricted(&agent))
+		print_json_string("restricted");
+	else if (agent_policy_is_admin_only(&agent))
+		print_json_string("admin_only");
+	else
+		print_json_string(agent_policy_allows_mutation(&agent) ?
+				  "operator_confirmed" : "read_only");
 	printf(",\n");
 	printf("  \"allowed_tools\": [\"edgepulse_snapshot\", \"shell.uname\", \"shell.uptime\", \"shell.logread\", \"ubus.system.board\", \"ubus.system.info\", \"ubus.network.interface.dump\", \"ubus.network.interface.status\", \"ubus.network.interface.dhcp_state\", \"ubus.network.wireless.status\", \"ubus.service.list\", \"iwinfo.radio.info\", \"iwinfo.radio.assoclist\", \"net.ping.ip\", \"net.ping.dns\"],\n");
 	printf("  \"confirmed_actions\": [\"reconnect-wan\", \"wifi-restart\", \"wifi-set\", \"service-restart\"],\n");
@@ -4124,6 +4187,7 @@ static int EDGEPULSE_AGENT_UNUSED print_agent_policy(void)
 	printf("    \"wifi_set\": %s,\n", agent.allow_wifi_set ? "true" : "false");
 	printf("    \"service_restart\": %s\n", agent.allow_service_restart ? "true" : "false");
 	printf("  },\n");
+	printf("  \"restricted_actions\": [\"firewall-change\", \"package-install\", \"package-remove\"],\n");
 	printf("  \"blocked_categories\": [\"file_deletion\", \"package_install_remove\", \"firewall_change\", \"arbitrary_shell\", \"unconfirmed_mutation\"],\n");
 	print_agent_validation(&agent, &model);
 	printf("\n");
@@ -4233,7 +4297,7 @@ static void print_agent_mcp_input_schema(const char *name)
 		return;
 	}
 	if (strcmp(name, "edgepulse.agent.action.run") == 0) {
-		printf("{\"type\":\"object\",\"properties\":{\"action\":{\"type\":\"string\",\"enum\":[\"status\",\"interface-status\",\"dhcp-status\",\"wifi-status\",\"wifi-metrics\",\"logs-recent\",\"service-status\",\"dns-diagnose\",\"reconnect-wan\",\"wifi-restart\",\"wifi-set\",\"service-restart\"]},\"interface\":{\"type\":\"string\",\"enum\":[\"wan\",\"lan\",\"wwan\"],\"description\":\"Safe OpenWrt interface name for interface-status and dhcp-status\"},\"wifi_interface\":{\"type\":\"string\",\"enum\":[\"wlan0\",\"wlan1\"],\"description\":\"Safe iwinfo interface name for wifi-metrics\"},\"service\":{\"type\":\"string\",\"enum\":[\"network\",\"dnsmasq\",\"firewall\",\"uhttpd\"],\"description\":\"Allowlisted OpenWrt service for service-restart\"},\"contains\":{\"type\":\"string\",\"description\":\"Safe substring filter for logs-recent output\"},\"level\":{\"type\":\"string\",\"enum\":[\"error\",\"warn\",\"info\",\"debug\"],\"description\":\"Best-effort log severity filter for logs-recent output\"},\"confirm\":{\"type\":\"boolean\",\"description\":\"Explicit operator confirmation for mutation actions\"},\"ssid\":{\"type\":\"string\",\"description\":\"Wi-Fi SSID for wifi-set\"},\"key\":{\"type\":\"string\",\"description\":\"Wi-Fi key for wifi-set\"},\"encryption\":{\"type\":\"string\",\"enum\":[\"none\",\"psk2\",\"sae-mixed\"]}},\"required\":[\"action\"]}");
+		printf("{\"type\":\"object\",\"properties\":{\"action\":{\"type\":\"string\",\"enum\":[\"status\",\"interface-status\",\"dhcp-status\",\"wifi-status\",\"wifi-metrics\",\"logs-recent\",\"service-status\",\"dns-diagnose\",\"reconnect-wan\",\"wifi-restart\",\"wifi-set\",\"service-restart\",\"firewall-change\",\"package-install\",\"package-remove\"]},\"interface\":{\"type\":\"string\",\"enum\":[\"wan\",\"lan\",\"wwan\"],\"description\":\"Safe OpenWrt interface name for interface-status and dhcp-status\"},\"wifi_interface\":{\"type\":\"string\",\"enum\":[\"wlan0\",\"wlan1\"],\"description\":\"Safe iwinfo interface name for wifi-metrics\"},\"service\":{\"type\":\"string\",\"enum\":[\"network\",\"dnsmasq\",\"firewall\",\"uhttpd\"],\"description\":\"Allowlisted OpenWrt service for service-restart\"},\"contains\":{\"type\":\"string\",\"description\":\"Safe substring filter for logs-recent output\"},\"level\":{\"type\":\"string\",\"enum\":[\"error\",\"warn\",\"info\",\"debug\"],\"description\":\"Best-effort log severity filter for logs-recent output\"},\"confirm\":{\"type\":\"boolean\",\"description\":\"Explicit operator confirmation for mutation actions\"},\"ssid\":{\"type\":\"string\",\"description\":\"Wi-Fi SSID for wifi-set\"},\"key\":{\"type\":\"string\",\"description\":\"Wi-Fi key for wifi-set\"},\"encryption\":{\"type\":\"string\",\"enum\":[\"none\",\"psk2\",\"sae-mixed\"]}},\"required\":[\"action\"]}");
 		return;
 	}
 	if (strcmp(name, "edgepulse.uci.get") == 0) {

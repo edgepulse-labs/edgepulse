@@ -286,6 +286,7 @@ enum {
 	MCP_MESSAGE,
 	MCP_ACTION,
 	MCP_SKILL_ID,
+	MCP_INTERFACE,
 	MCP_CONFIRM,
 	MCP_SSID,
 	MCP_KEY,
@@ -299,6 +300,7 @@ static const struct blobmsg_policy mcp_tool_policy[MCP_MAX] = {
 	[MCP_MESSAGE] = { .name = "message", .type = BLOBMSG_TYPE_STRING },
 	[MCP_ACTION] = { .name = "action", .type = BLOBMSG_TYPE_STRING },
 	[MCP_SKILL_ID] = { .name = "skill_id", .type = BLOBMSG_TYPE_STRING },
+	[MCP_INTERFACE] = { .name = "interface", .type = BLOBMSG_TYPE_STRING },
 	[MCP_CONFIRM] = { .name = "confirm", .type = BLOBMSG_TYPE_BOOL },
 	[MCP_SSID] = { .name = "ssid", .type = BLOBMSG_TYPE_STRING },
 	[MCP_KEY] = { .name = "key", .type = BLOBMSG_TYPE_STRING },
@@ -465,6 +467,12 @@ static int agent_ubus_mcp_tools_call(struct ubus_context *ctx,
 	    tb[MCP_ENCRYPTION]) {
 		argv[argc++] = "--encryption";
 		argv[argc++] = (char *)blobmsg_get_string(tb[MCP_ENCRYPTION]);
+	}
+	if ((strcmp(name, "edgepulse.agent.action.run") == 0 ||
+	     strcmp(name, "edgepulse.agent.skill.run") == 0) &&
+	    tb[MCP_INTERFACE]) {
+		argv[argc++] = "--interface";
+		argv[argc++] = (char *)blobmsg_get_string(tb[MCP_INTERFACE]);
 	}
 	argv[argc] = NULL;
 

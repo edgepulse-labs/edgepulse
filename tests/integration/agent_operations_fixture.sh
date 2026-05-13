@@ -43,6 +43,14 @@ if [ "$1 $2 $3" = "call network.interface dump" ]; then
 	printf '{"interface":[{"interface":"wan","up":true,"ipv4-address":[{"address":"198.51.100.10"}]}]}\n'
 	exit 0
 fi
+if [ "$1 $2 $3" = "call network.interface.wan status" ]; then
+	printf '{"interface":"wan","up":true,"proto":"dhcp","ipv4-address":[{"address":"198.51.100.10"}],"data":{"lease-acquired":12345}}\n'
+	exit 0
+fi
+if [ "$1 $2 $3" = "call network.interface.lan status" ]; then
+	printf '{"interface":"lan","up":true,"proto":"static","ipv4-address":[{"address":"192.0.2.1"}]}\n'
+	exit 0
+fi
 if [ "$1 $2 $3" = "call network.wireless status" ]; then
 	printf '{"radio0":{"up":true,"interfaces":[{"section":"default_radio0","config":{"ssid":"EdgePulse","key":"fixture-secret"},"stations":["02:00:00:00:00:01"]}]}}\n'
 	exit 0
@@ -98,6 +106,18 @@ printf '%s\n' "$wan_out" | grep -q '"name": "net.ping.ip"' ||
 	fail "WAN reconnect did not run IP reachability verification"
 printf '%s\n' "$wan_out" | grep -q '"name": "net.ping.dns"' ||
 	fail "WAN reconnect did not run DNS reachability verification"
+
+iface_out="$("$ROOT/edgepulse-ctl" agent action interface-status --interface lan)"
+printf '%s\n' "$iface_out" | grep -q '"action": "interface-status"' ||
+	fail "interface-status did not complete action path"
+printf '%s\n' "$iface_out" | grep -q '192.0.2.1' ||
+	fail "interface-status did not return interface fixture output"
+
+dhcp_out="$("$ROOT/edgepulse-ctl" agent action dhcp-status --interface wan)"
+printf '%s\n' "$dhcp_out" | grep -q '"action": "dhcp-status"' ||
+	fail "dhcp-status did not complete action path"
+printf '%s\n' "$dhcp_out" | grep -q 'lease-acquired' ||
+	fail "dhcp-status did not return DHCP state fixture output"
 
 wifi_restart_out="$("$ROOT/edgepulse-ctl" agent action wifi-restart --confirm)"
 printf '%s\n' "$wifi_restart_out" | grep -q '"action": "wifi-restart"' ||

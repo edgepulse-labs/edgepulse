@@ -46,6 +46,9 @@ static void test_agent_policy_allowlist(void)
 	char *const uname_ok[] = { "uname", "-a", NULL };
 	char *const uptime_ok[] = { "uptime", NULL };
 	char *const ubus_ok[] = { "ubus", "call", "system", "board", NULL };
+	char *const iface_wan_ok[] = { "ubus", "call", "network.interface.wan", "status", NULL };
+	char *const iface_lan_ok[] = { "ubus", "call", "network.interface.lan", "status", NULL };
+	char *const iface_bad_denied[] = { "ubus", "call", "network.interface.guest", "status", NULL };
 	char *const wireless_ok[] = { "ubus", "call", "network.wireless", "status", NULL };
 	char *const service_ok[] = { "ubus", "call", "service", "list", NULL };
 	char *const logread_ok[] = { "logread", "-l", "80", NULL };
@@ -66,6 +69,9 @@ static void test_agent_policy_allowlist(void)
 	check_int("allow uname -a", agent_command_allowed(uname_ok), 1);
 	check_int("allow uptime", agent_command_allowed(uptime_ok), 1);
 	check_int("allow ubus system board", agent_command_allowed(ubus_ok), 1);
+	check_int("allow ubus wan interface status", agent_command_allowed(iface_wan_ok), 1);
+	check_int("allow ubus lan interface status", agent_command_allowed(iface_lan_ok), 1);
+	check_int("deny arbitrary interface status", agent_command_allowed(iface_bad_denied), 0);
 	check_int("allow ubus wireless status", agent_command_allowed(wireless_ok), 1);
 	check_int("allow ubus service list", agent_command_allowed(service_ok), 1);
 	check_int("allow bounded logread", agent_command_allowed(logread_ok), 1);
@@ -83,6 +89,9 @@ static void test_agent_policy_allowlist(void)
 	check_int("allow wifi reload", agent_mutating_command_allowed(wifi_reload_ok), 1);
 	check_int("allow wifi ssid uci", agent_mutating_command_allowed(uci_ssid_ok), 1);
 	check_int("deny network uci", agent_mutating_command_allowed(uci_network_denied), 0);
+	check_int("safe wan interface", agent_interface_is_safe("wan"), 1);
+	check_int("safe lan interface", agent_interface_is_safe("lan"), 1);
+	check_int("unsafe guest interface", agent_interface_is_safe("guest"), 0);
 }
 
 static void test_agent_tool_execution(void)
@@ -370,7 +379,7 @@ static void test_agent_skill_registry(void)
 	wan_skill = agent_find_skill("openwrt.wan.reconnect");
 	wifi_restart_skill = agent_find_skill("openwrt.wifi.restart");
 
-	check_int("skill count", (int)agent_skill_count(), 8);
+	check_int("skill count", (int)agent_skill_count(), 10);
 	check_string("find status skill action",
 		     status_skill ? status_skill->action : "", "status");
 	check_int("status skill read only", status_skill ? status_skill->read_only : 0, 1);

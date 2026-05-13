@@ -295,8 +295,8 @@ Checklist:
 - [x] Wireless status.
 - [x] Service list.
 - [x] System board/info in diagnostics.
-- [ ] Interface-specific status wrapper.
-- [ ] DHCP state wrapper.
+- [x] Interface-specific status wrapper for safe `wan`, `lan`, and `wwan` interface names.
+- [x] DHCP state wrapper via safe interface status evidence.
 - [ ] Target validation with real ubus.
 
 ### UCI wrapper

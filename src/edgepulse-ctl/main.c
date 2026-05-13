@@ -413,7 +413,6 @@ static void redact_sensitive_output(const char *input, char *out, size_t out_siz
 	out[used] = '\0';
 }
 
-#ifdef EDGEPULSE_ENABLE_AI_AGENT
 static void agent_syslog(int priority, const char *fmt, ...)
 {
 	va_list ap;
@@ -424,7 +423,6 @@ static void agent_syslog(int priority, const char *fmt, ...)
 	va_end(ap);
 	closelog();
 }
-#endif
 
 static void strip_quotes(char *value)
 {

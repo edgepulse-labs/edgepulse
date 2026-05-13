@@ -3800,6 +3800,31 @@ static int EDGEPULSE_AGENT_UNUSED print_agent_mcp_methods(void)
 	return 0;
 }
 
+static void print_agent_mcp_input_schema(const char *name)
+{
+	if (strcmp(name, "edgepulse.agent.chat.ask") == 0) {
+		printf("{\"type\":\"object\",\"properties\":{\"conversation_id\":{\"type\":\"string\",\"description\":\"Conversation id, defaults to default when omitted\"},\"message\":{\"type\":\"string\",\"description\":\"User message to add to the shared EdgePulse conversation\"}},\"required\":[\"message\"]}");
+		return;
+	}
+	if (strcmp(name, "edgepulse.agent.chat.list") == 0) {
+		printf("{\"type\":\"object\",\"properties\":{\"conversation_id\":{\"type\":\"string\",\"description\":\"Optional conversation id; omit to list recent conversations\"}}}");
+		return;
+	}
+	if (strcmp(name, "edgepulse.agent.skill.plan") == 0) {
+		printf("{\"type\":\"object\",\"properties\":{\"skill_id\":{\"type\":\"string\",\"description\":\"Deterministic EdgePulse skill id\"}},\"required\":[\"skill_id\"]}");
+		return;
+	}
+	if (strcmp(name, "edgepulse.agent.skill.run") == 0) {
+		printf("{\"type\":\"object\",\"properties\":{\"skill_id\":{\"type\":\"string\",\"description\":\"Deterministic EdgePulse skill id\"},\"confirm\":{\"type\":\"boolean\",\"description\":\"Explicit operator confirmation for mutation skills\"},\"ssid\":{\"type\":\"string\",\"description\":\"Wi-Fi SSID for Wi-Fi configuration skills\"},\"key\":{\"type\":\"string\",\"description\":\"Wi-Fi key for Wi-Fi configuration skills\"},\"encryption\":{\"type\":\"string\",\"enum\":[\"none\",\"psk2\",\"sae-mixed\"]}},\"required\":[\"skill_id\"]}");
+		return;
+	}
+	if (strcmp(name, "edgepulse.agent.action.run") == 0) {
+		printf("{\"type\":\"object\",\"properties\":{\"action\":{\"type\":\"string\",\"enum\":[\"status\",\"wifi-status\",\"logs-recent\",\"service-status\",\"dns-diagnose\",\"reconnect-wan\",\"wifi-restart\",\"wifi-set\"]},\"confirm\":{\"type\":\"boolean\",\"description\":\"Explicit operator confirmation for mutation actions\"},\"ssid\":{\"type\":\"string\",\"description\":\"Wi-Fi SSID for wifi-set\"},\"key\":{\"type\":\"string\",\"description\":\"Wi-Fi key for wifi-set\"},\"encryption\":{\"type\":\"string\",\"enum\":[\"none\",\"psk2\",\"sae-mixed\"]}},\"required\":[\"action\"]}");
+		return;
+	}
+	printf("{\"type\":\"object\",\"properties\":{}}");
+}
+
 static void print_agent_mcp_tool_entry(const char *name, const char *description,
 				       int *first)
 {
@@ -3809,6 +3834,8 @@ static void print_agent_mcp_tool_entry(const char *name, const char *description
 	print_json_string(name);
 	printf(",\"description\":");
 	print_json_string(description);
+	printf(",\"inputSchema\":");
+	print_agent_mcp_input_schema(name);
 	printf("}");
 	*first = 0;
 }

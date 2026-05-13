@@ -1,11 +1,13 @@
 #include "edgepulse.h"
 
 #include <errno.h>
+#include <fcntl.h>
 #include <limits.h>
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -436,14 +438,49 @@ int edgepulse_parse_nft_counters_stream(FILE *fp, struct edgepulse_sample_batch 
 
 static int collect_nft_counter_samples(struct edgepulse_sample_batch *batch)
 {
+	int pipefd[2];
+	pid_t pid;
 	int rc;
-	FILE *fp = popen("/usr/sbin/nft list counters 2>/dev/null", "r");
+	FILE *fp;
+	int status = 0;
 
-	if (!fp)
+	if (pipe(pipefd) != 0)
 		return -1;
 
+	pid = fork();
+	if (pid < 0) {
+		close(pipefd[0]);
+		close(pipefd[1]);
+		return -1;
+	}
+
+	if (pid == 0) {
+		int devnull;
+
+		close(pipefd[0]);
+		dup2(pipefd[1], STDOUT_FILENO);
+		close(pipefd[1]);
+		devnull = open("/dev/null", O_WRONLY);
+		if (devnull >= 0) {
+			dup2(devnull, STDERR_FILENO);
+			close(devnull);
+		}
+		execl("/usr/sbin/nft", "nft", "list", "counters", NULL);
+		_exit(127);
+	}
+
+	close(pipefd[1]);
+	fp = fdopen(pipefd[0], "r");
+	if (!fp) {
+		close(pipefd[0]);
+		waitpid(pid, &status, 0);
+		return -1;
+	}
 	rc = edgepulse_parse_nft_counters_stream(fp, batch);
-	if (pclose(fp) == -1)
+	fclose(fp);
+	if (waitpid(pid, &status, 0) < 0)
+		return -1;
+	if (!WIFEXITED(status) || WEXITSTATUS(status) != 0)
 		return -1;
 	return rc;
 }

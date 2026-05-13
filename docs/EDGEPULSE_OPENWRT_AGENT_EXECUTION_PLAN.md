@@ -276,7 +276,7 @@ Checklist:
 - [x] ubus wrappers for `mcp.tools.list` and `mcp.tools.call`.
 - [ ] Full JSON-RPC 2.0 parser behavior beyond MVP line-oriented extraction.
 - [ ] Long-running socket/server transport beyond local stdio.
-- [ ] Tool schema metadata beyond simple names/descriptions.
+- [x] Tool schema metadata beyond simple names/descriptions.
 
 ### Exposure Rules
 
@@ -285,7 +285,7 @@ Checklist:
 - [x] Do not expose unrestricted shell.
 - [x] Do not expose unrestricted ubus.
 - [x] Do not expose unrestricted filesystem access.
-- [ ] Add richer JSON schemas for tool inputs.
+- [x] Add richer JSON schemas for tool inputs.
 
 ## 8. OpenWrt Integration Layer
 
@@ -361,7 +361,7 @@ Hard restrictions:
 - [x] No dynamic command concatenation for execution.
 - [x] `execvp` is only used after allowlist validation or for fixed local wrapper commands.
 - [x] Package installation remains restricted/unimplemented.
-- [ ] Add static analysis/check script to prevent accidental introduction of `system()`/`popen()`.
+- [x] Add static analysis/check script to prevent accidental introduction of `system()`/`popen()`.
 
 Secret protection:
 
@@ -389,6 +389,7 @@ LLM safety boundary:
 - [x] Unit tests for conversation storage.
 - [x] Unit tests for MCP JSON helper parsing.
 - [x] Unit tests for built-in and manifest-backed skill registry.
+- [x] Safety check blocks forbidden `system()`/`popen()` APIs in source.
 - [x] Integration fixture for model calls.
 - [x] Integration fixture for policy-gated operations.
 - [x] Integration fixture for MCP methods/stdin server.

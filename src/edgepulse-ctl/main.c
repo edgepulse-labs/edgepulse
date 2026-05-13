@@ -42,6 +42,7 @@ struct agent_config {
 	int chat_enabled;
 	int mcp_enabled;
 	int allow_reconnect_wan;
+	int allow_wifi_restart;
 	int allow_wifi_set;
 	int mcp_allow_edgepulse_status;
 	int mcp_allow_agent_status;
@@ -337,6 +338,7 @@ static void init_agent_config(struct agent_config *agent,
 	agent->chat_enabled = 1;
 	agent->mcp_enabled = 0;
 	agent->allow_reconnect_wan = 1;
+	agent->allow_wifi_restart = 1;
 	agent->allow_wifi_set = 1;
 	agent->mcp_allow_edgepulse_status = 1;
 	agent->mcp_allow_agent_status = 1;
@@ -467,6 +469,8 @@ static int read_agent_config_models(struct agent_config *agent,
 				agent->mcp_enabled = parse_bool_value(value, agent->mcp_enabled);
 			else if (strcmp(key, "allow_reconnect_wan") == 0)
 				agent->allow_reconnect_wan = parse_bool_value(value, agent->allow_reconnect_wan);
+			else if (strcmp(key, "allow_wifi_restart") == 0)
+				agent->allow_wifi_restart = parse_bool_value(value, agent->allow_wifi_restart);
 			else if (strcmp(key, "allow_wifi_set") == 0)
 				agent->allow_wifi_set = parse_bool_value(value, agent->allow_wifi_set);
 			else if (strcmp(key, "mcp_allow_edgepulse_status") == 0)
@@ -1998,6 +2002,8 @@ static int EDGEPULSE_AGENT_UNUSED print_agent_status(void)
 	printf("    \"mcp_enabled\": %s,\n", agent.mcp_enabled ? "true" : "false");
 	printf("    \"allow_reconnect_wan\": %s,\n",
 	       agent.allow_reconnect_wan ? "true" : "false");
+	printf("    \"allow_wifi_restart\": %s,\n",
+	       agent.allow_wifi_restart ? "true" : "false");
 	printf("    \"allow_wifi_set\": %s,\n",
 	       agent.allow_wifi_set ? "true" : "false");
 	printf("    \"mcp_method_acl\": {\n");
@@ -2974,7 +2980,7 @@ static int EDGEPULSE_AGENT_UNUSED print_agent_action(int argc, char **argv)
 	int result_count = 0;
 
 	if (argc < 4) {
-		fprintf(stderr, "Usage: edgepulse-ctl agent action <status|wifi-status|logs-recent|service-status|dns-diagnose|reconnect-wan|wifi-set> [--confirm] [options]\n");
+		fprintf(stderr, "Usage: edgepulse-ctl agent action <status|wifi-status|logs-recent|service-status|dns-diagnose|reconnect-wan|wifi-restart|wifi-set> [--confirm] [options]\n");
 		return 2;
 	}
 
@@ -3104,6 +3110,38 @@ static int EDGEPULSE_AGENT_UNUSED print_agent_action(int argc, char **argv)
 		return 0;
 	}
 
+	if (strcmp(action, "wifi-restart") == 0) {
+		char *const wifi_reload_argv[] = { "wifi", "reload", NULL };
+		char *const wireless_argv[] = { "ubus", "call", "network.wireless", "status", NULL };
+
+		if (!agent.allow_wifi_restart) {
+			print_agent_action_disabled(action);
+			return 0;
+		}
+
+		if (!agent_policy_allows_mutation(&agent) ||
+		    !agent_arg_has_confirm(argc - 4, argv + 4)) {
+			print_agent_confirmation_required(action,
+							  "Restarting Wi-Fi reloads wireless state and may briefly disconnect clients.");
+			return 0;
+		}
+
+		agent_run_policy_command("wifi.reload", wifi_reload_argv,
+					 agent.tool_timeout_sec,
+					 agent.max_tool_output_bytes, 1,
+					 &results[result_count++]);
+		agent_run_read_only_command("ubus.network.wireless.status",
+					    wireless_argv,
+					    agent.tool_timeout_sec,
+					    agent.max_tool_output_bytes,
+					    &results[result_count++]);
+		for (int i = 0; i < result_count; i++)
+			agent_store_audit(agent.db_path, request_id, results[i].name,
+					  results[i].status);
+		print_agent_action_result(action, request_id, results, result_count);
+		return 0;
+	}
+
 	if (strcmp(action, "wifi-set") == 0) {
 		const char *ssid = agent_arg_value(argc - 4, argv + 4, "--ssid");
 		const char *key = agent_arg_value(argc - 4, argv + 4, "--key");
@@ -3192,7 +3230,7 @@ static int EDGEPULSE_AGENT_UNUSED print_agent_action(int argc, char **argv)
 		return 0;
 	}
 
-	fprintf(stderr, "Usage: edgepulse-ctl agent action <status|wifi-status|logs-recent|service-status|dns-diagnose|reconnect-wan|wifi-set> [--confirm] [options]\n");
+	fprintf(stderr, "Usage: edgepulse-ctl agent action <status|wifi-status|logs-recent|service-status|dns-diagnose|reconnect-wan|wifi-restart|wifi-set> [--confirm] [options]\n");
 	return 2;
 }
 
@@ -3289,6 +3327,21 @@ static const struct agent_skill agent_builtin_skills[] = {
 		.source = "builtin"
 	},
 	{
+		.id = "openwrt.wifi.restart",
+		.title = "Restart Wi-Fi",
+		.description = "Reload Wi-Fi and verify wireless status.",
+		.action = "wifi-restart",
+		.required_policy = "operator_confirmed",
+		.requires_confirm = 1,
+		.read_only = 0,
+		.steps = {
+			"wifi.reload",
+			"ubus.network.wireless.status",
+			NULL
+		},
+		.source = "builtin"
+	},
+	{
 		.id = "openwrt.wifi.set_ssid",
 		.title = "Set Wi-Fi SSID",
 		.description = "Write validated wireless UCI settings and reload Wi-Fi.",
@@ -3324,6 +3377,7 @@ static int agent_skill_action_supported(const char *action)
 		 strcmp(action, "service-status") == 0 ||
 		 strcmp(action, "dns-diagnose") == 0 ||
 		 strcmp(action, "reconnect-wan") == 0 ||
+		 strcmp(action, "wifi-restart") == 0 ||
 		 strcmp(action, "wifi-set") == 0);
 }
 
@@ -3490,6 +3544,8 @@ static int agent_skill_allowed(const struct agent_config *agent,
 		return 1;
 	if (strcmp(skill->action, "reconnect-wan") == 0 && !agent->allow_reconnect_wan)
 		return 0;
+	if (strcmp(skill->action, "wifi-restart") == 0 && !agent->allow_wifi_restart)
+		return 0;
 	if (strcmp(skill->action, "wifi-set") == 0 && !agent->allow_wifi_set)
 		return 0;
 	return agent_policy_allows_mutation(agent);
@@ -3652,9 +3708,10 @@ static int EDGEPULSE_AGENT_UNUSED print_agent_policy(void)
 			  "operator_confirmed" : "read_only");
 	printf(",\n");
 	printf("  \"allowed_tools\": [\"edgepulse_snapshot\", \"shell.uname\", \"shell.uptime\", \"shell.logread\", \"ubus.system.board\", \"ubus.system.info\", \"ubus.network.interface.dump\", \"ubus.network.wireless.status\", \"ubus.service.list\", \"net.ping.ip\", \"net.ping.dns\"],\n");
-	printf("  \"confirmed_actions\": [\"reconnect-wan\", \"wifi-set\"],\n");
+	printf("  \"confirmed_actions\": [\"reconnect-wan\", \"wifi-restart\", \"wifi-set\"],\n");
 	printf("  \"action_permissions\": {\n");
 	printf("    \"reconnect_wan\": %s,\n", agent.allow_reconnect_wan ? "true" : "false");
+	printf("    \"wifi_restart\": %s,\n", agent.allow_wifi_restart ? "true" : "false");
 	printf("    \"wifi_set\": %s\n", agent.allow_wifi_set ? "true" : "false");
 	printf("  },\n");
 	printf("  \"blocked_categories\": [\"file_deletion\", \"package_install_remove\", \"firewall_change\", \"arbitrary_shell\", \"unconfirmed_mutation\"],\n");

@@ -280,6 +280,31 @@ static const struct blobmsg_policy skill_policy[SKILL_MAX] = {
 	[SKILL_ENCRYPTION] = { .name = "encryption", .type = BLOBMSG_TYPE_STRING },
 };
 
+enum {
+	MCP_NAME,
+	MCP_CONVERSATION_ID,
+	MCP_MESSAGE,
+	MCP_ACTION,
+	MCP_SKILL_ID,
+	MCP_CONFIRM,
+	MCP_SSID,
+	MCP_KEY,
+	MCP_ENCRYPTION,
+	MCP_MAX
+};
+
+static const struct blobmsg_policy mcp_tool_policy[MCP_MAX] = {
+	[MCP_NAME] = { .name = "name", .type = BLOBMSG_TYPE_STRING },
+	[MCP_CONVERSATION_ID] = { .name = "conversation_id", .type = BLOBMSG_TYPE_STRING },
+	[MCP_MESSAGE] = { .name = "message", .type = BLOBMSG_TYPE_STRING },
+	[MCP_ACTION] = { .name = "action", .type = BLOBMSG_TYPE_STRING },
+	[MCP_SKILL_ID] = { .name = "skill_id", .type = BLOBMSG_TYPE_STRING },
+	[MCP_CONFIRM] = { .name = "confirm", .type = BLOBMSG_TYPE_BOOL },
+	[MCP_SSID] = { .name = "ssid", .type = BLOBMSG_TYPE_STRING },
+	[MCP_KEY] = { .name = "key", .type = BLOBMSG_TYPE_STRING },
+	[MCP_ENCRYPTION] = { .name = "encryption", .type = BLOBMSG_TYPE_STRING },
+};
+
 static int agent_ubus_skill_plan(struct ubus_context *ctx,
 				 struct ubus_object *obj __attribute__((unused)),
 				 struct ubus_request_data *req,
@@ -343,6 +368,106 @@ static int agent_ubus_skill_run(struct ubus_context *ctx,
 		argv[argc++] = (char *)blobmsg_get_string(tb[SKILL_ENCRYPTION]);
 	}
 	argv[argc] = NULL;
+	rc = capture_agent_ctl(argv, output, sizeof(output));
+	agent_ubus_reply(ctx, req, method, rc, output);
+	return 0;
+}
+
+static int agent_ubus_mcp_tools_list(struct ubus_context *ctx,
+				     struct ubus_object *obj __attribute__((unused)),
+				     struct ubus_request_data *req,
+				     const char *method,
+				     struct blob_attr *msg __attribute__((unused)))
+{
+	char output[16384];
+	char *argv[] = { "edgepulse-ctl", "agent", "mcp", "methods", NULL };
+	int rc = capture_agent_ctl(argv, output, sizeof(output));
+
+	agent_ubus_reply(ctx, req, method, rc, output);
+	return 0;
+}
+
+static int agent_ubus_mcp_tools_call(struct ubus_context *ctx,
+				     struct ubus_object *obj __attribute__((unused)),
+				     struct ubus_request_data *req,
+				     const char *method,
+				     struct blob_attr *msg)
+{
+	struct blob_attr *tb[MCP_MAX];
+	char output[16384];
+	char *argv[18];
+	const char *name;
+	int argc = 0;
+	int rc;
+
+	blobmsg_parse(mcp_tool_policy, MCP_MAX, tb, blob_data(msg), blob_len(msg));
+	if (!tb[MCP_NAME]) {
+		agent_ubus_reply(ctx, req, method, 2,
+				 "{\"status\":\"error\",\"answer\":\"mcp.tools.call requires name\"}");
+		return 0;
+	}
+
+	name = blobmsg_get_string(tb[MCP_NAME]);
+	argv[argc++] = "edgepulse-ctl";
+	argv[argc++] = "agent";
+	argv[argc++] = "mcp";
+	argv[argc++] = "call";
+	argv[argc++] = (char *)name;
+
+	if (strcmp(name, "edgepulse.agent.chat.ask") == 0) {
+		if (!tb[MCP_MESSAGE]) {
+			agent_ubus_reply(ctx, req, method, 2,
+					 "{\"status\":\"error\",\"answer\":\"edgepulse.agent.chat.ask requires message\"}");
+			return 0;
+		}
+		argv[argc++] = tb[MCP_CONVERSATION_ID] ?
+			(char *)blobmsg_get_string(tb[MCP_CONVERSATION_ID]) :
+			"default";
+		argv[argc++] = (char *)blobmsg_get_string(tb[MCP_MESSAGE]);
+	} else if (strcmp(name, "edgepulse.agent.chat.list") == 0) {
+		if (tb[MCP_CONVERSATION_ID])
+			argv[argc++] = (char *)blobmsg_get_string(tb[MCP_CONVERSATION_ID]);
+	} else if (strcmp(name, "edgepulse.agent.action.run") == 0) {
+		if (!tb[MCP_ACTION]) {
+			agent_ubus_reply(ctx, req, method, 2,
+					 "{\"status\":\"error\",\"answer\":\"edgepulse.agent.action.run requires action\"}");
+			return 0;
+		}
+		argv[argc++] = (char *)blobmsg_get_string(tb[MCP_ACTION]);
+	} else if (strcmp(name, "edgepulse.agent.skill.plan") == 0 ||
+		   strcmp(name, "edgepulse.agent.skill.run") == 0) {
+		if (!tb[MCP_SKILL_ID]) {
+			agent_ubus_reply(ctx, req, method, 2,
+					 "{\"status\":\"error\",\"answer\":\"edgepulse.agent.skill requires skill_id\"}");
+			return 0;
+		}
+		argv[argc++] = (char *)blobmsg_get_string(tb[MCP_SKILL_ID]);
+	}
+
+	if ((strcmp(name, "edgepulse.agent.action.run") == 0 ||
+	     strcmp(name, "edgepulse.agent.skill.run") == 0) &&
+	    tb[MCP_CONFIRM] && blobmsg_get_bool(tb[MCP_CONFIRM]))
+		argv[argc++] = "--confirm";
+	if ((strcmp(name, "edgepulse.agent.action.run") == 0 ||
+	     strcmp(name, "edgepulse.agent.skill.run") == 0) &&
+	    tb[MCP_SSID]) {
+		argv[argc++] = "--ssid";
+		argv[argc++] = (char *)blobmsg_get_string(tb[MCP_SSID]);
+	}
+	if ((strcmp(name, "edgepulse.agent.action.run") == 0 ||
+	     strcmp(name, "edgepulse.agent.skill.run") == 0) &&
+	    tb[MCP_KEY]) {
+		argv[argc++] = "--key";
+		argv[argc++] = (char *)blobmsg_get_string(tb[MCP_KEY]);
+	}
+	if ((strcmp(name, "edgepulse.agent.action.run") == 0 ||
+	     strcmp(name, "edgepulse.agent.skill.run") == 0) &&
+	    tb[MCP_ENCRYPTION]) {
+		argv[argc++] = "--encryption";
+		argv[argc++] = (char *)blobmsg_get_string(tb[MCP_ENCRYPTION]);
+	}
+	argv[argc] = NULL;
+
 	rc = capture_agent_ctl(argv, output, sizeof(output));
 	agent_ubus_reply(ctx, req, method, rc, output);
 	return 0;
@@ -424,6 +549,8 @@ static const struct ubus_method agent_ubus_methods[] = {
 	UBUS_METHOD_NOARG("skill.list", agent_ubus_skill_list),
 	UBUS_METHOD("skill.plan", agent_ubus_skill_plan, skill_policy),
 	UBUS_METHOD("skill.run", agent_ubus_skill_run, skill_policy),
+	UBUS_METHOD_NOARG("mcp.tools.list", agent_ubus_mcp_tools_list),
+	UBUS_METHOD("mcp.tools.call", agent_ubus_mcp_tools_call, mcp_tool_policy),
 	UBUS_METHOD("chat.ask", agent_ubus_chat_ask, chat_ask_policy),
 	UBUS_METHOD("chat.list", agent_ubus_chat_list, chat_ask_policy),
 	UBUS_METHOD("action.run", agent_ubus_action_run, action_policy),

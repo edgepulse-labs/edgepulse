@@ -33,6 +33,7 @@ config agent 'agent'
 	option tool_timeout_sec '2'
 	option max_tool_output_bytes '2048'
 	option allow_reconnect_wan '1'
+	option allow_wifi_restart '1'
 	option allow_wifi_set '1'
 EOF_CONFIG
 
@@ -97,6 +98,14 @@ printf '%s\n' "$wan_out" | grep -q '"name": "net.ping.ip"' ||
 	fail "WAN reconnect did not run IP reachability verification"
 printf '%s\n' "$wan_out" | grep -q '"name": "net.ping.dns"' ||
 	fail "WAN reconnect did not run DNS reachability verification"
+
+wifi_restart_out="$("$ROOT/edgepulse-ctl" agent action wifi-restart --confirm)"
+printf '%s\n' "$wifi_restart_out" | grep -q '"action": "wifi-restart"' ||
+	fail "wifi-restart did not complete action path"
+printf '%s\n' "$wifi_restart_out" | grep -q '"name": "wifi.reload"' ||
+	fail "wifi-restart did not reload Wi-Fi"
+printf '%s\n' "$wifi_restart_out" | grep -q '"name": "ubus.network.wireless.status"' ||
+	fail "wifi-restart did not verify wireless status"
 
 wifi_out="$("$ROOT/edgepulse-ctl" agent action wifi-set --ssid EdgePulse --key fixture-secret --confirm)"
 printf '%s\n' "$wifi_out" | grep -q '"action": "wifi-set"' ||

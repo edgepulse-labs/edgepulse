@@ -24,6 +24,7 @@ Implemented:
 - UCI defaults include `chat_enabled`, `default_conversation_id`, and `mcp_enabled`.
 - Local C MCP adapter exposes chat, status, skill, action, audit, read-only `ubus`, and limited EdgePulse UCI methods.
 - Skill manifests can be loaded from `EDGEPULSE_SKILLS_DIR`, local `skills.d/`, or `/usr/share/edgepulse/skills.d`; manifests only map to fixed EdgePulse actions.
+- The `edgepulse.agent` ubus object exposes `mcp.tools.list` and `mcp.tools.call` wrappers over the same local C MCP adapter.
 - OpenWrt One validation confirmed CLI, LuCI helper, and MCP stdio can read the same conversation history.
 
 ## Shared Conversation Model
@@ -56,7 +57,7 @@ Current and required behavior:
 Future UI work:
 
 - Show recent conversations and allow switching between them.
-- Offer operation shortcuts such as router status, Wi-Fi status, recent logs, reconnect WAN, and Wi-Fi setup.
+- Offer operation shortcuts such as router status, Wi-Fi status, recent logs, reconnect WAN, restart Wi-Fi, and Wi-Fi setup.
 - For confirmed operations, show a confirmation step before calling the confirmed action path.
 
 The UI should use the same backend path as CLI so there is no split brain.
@@ -75,6 +76,9 @@ config agent 'agent'
     option shell_enabled '1'
     option ubus_enabled '1'
     option policy_profile 'read_only'
+    option allow_reconnect_wan '1'
+    option allow_wifi_restart '1'
+    option allow_wifi_set '1'
     option chat_enabled '1'
     option default_conversation_id 'default'
     option mcp_enabled '0'
@@ -180,6 +184,7 @@ For state-changing methods, the MCP bridge must pass explicit confirmation and t
 - [x] Add an EdgePulse `ubus` object for local agent calls.
 - [x] Add built-in deterministic skill list, plan, and run paths over CLI, MCP, and ubus.
 - [x] Add validated JSON skill manifest loading and package install support.
+- [x] Add direct ubus wrappers for MCP tool listing and tool calls.
 - [ ] Add LuCI conversation selection and operation shortcuts.
 - [x] Add end-to-end tests for mixed-origin CLI, LuCI, and MCP conversation writes.
 - [ ] If `openwrt-mcp-server` returns to scope, update its executor to call EdgePulse local APIs instead of placeholder command execution.

@@ -86,6 +86,22 @@ cat >"$BIN_DIR/wifi" <<'EOF_WIFI'
 printf 'wifi %s\n' "$1"
 EOF_WIFI
 
+cat >"$BIN_DIR/iwinfo" <<'EOF_IWINFO'
+#!/bin/sh
+if [ "$1 $2" = "wlan0 info" ]; then
+	printf 'ESSID: "EdgePulse"\n'
+	printf 'Channel: 11\n'
+	printf 'Signal: -45 dBm\n'
+	printf 'Channel utilization: 18/255\n'
+	exit 0
+fi
+if [ "$1 $2" = "wlan0 assoclist" ]; then
+	printf '02:00:00:00:00:01  -48 dBm / -95 dBm (SNR 47)  120 ms ago\n'
+	exit 0
+fi
+exit 1
+EOF_IWINFO
+
 cat >"$BIN_DIR/ping" <<'EOF_PING'
 #!/bin/sh
 printf 'PING %s ok\n' "$5"
@@ -135,6 +151,18 @@ printf '%s\n' "$logs_out" | grep -q 'fixture-token' &&
 	fail "logs-recent leaked token"
 printf '%s\n' "$logs_out" | grep -q 'api_key=redacted' ||
 	fail "logs-recent did not redact API key"
+
+wifi_metrics_out="$("$ROOT/edgepulse-ctl" agent action wifi-metrics --wifi-interface wlan0)"
+printf '%s\n' "$wifi_metrics_out" | grep -q '"action": "wifi-metrics"' ||
+	fail "wifi-metrics did not complete action path"
+printf '%s\n' "$wifi_metrics_out" | grep -q '"name": "iwinfo.radio.info"' ||
+	fail "wifi-metrics did not collect iwinfo radio info"
+printf '%s\n' "$wifi_metrics_out" | grep -q '"name": "iwinfo.radio.assoclist"' ||
+	fail "wifi-metrics did not collect iwinfo assoclist"
+printf '%s\n' "$wifi_metrics_out" | grep -q 'Channel utilization' ||
+	fail "wifi-metrics did not return utilization fixture output"
+printf '%s\n' "$wifi_metrics_out" | grep -q '02:00:00:00:00:01' ||
+	fail "wifi-metrics did not return station fixture output"
 
 wifi_restart_out="$("$ROOT/edgepulse-ctl" agent action wifi-restart --confirm)"
 printf '%s\n' "$wifi_restart_out" | grep -q '"action": "wifi-restart"' ||

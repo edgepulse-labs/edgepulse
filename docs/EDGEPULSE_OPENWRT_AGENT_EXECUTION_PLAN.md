@@ -112,7 +112,7 @@ OpenWrt capability layer:
 - [x] UCI wireless writes through validated confirmed actions.
 - [x] logread bounded read.
 - [x] ping reachability checks.
-- [ ] iwinfo wrapper for detailed Wi-Fi radio/station metrics.
+- [x] iwinfo wrapper for detailed Wi-Fi radio/station metrics.
 - [ ] procd wrapper for service restart/enable/disable.
 - [ ] controlled firewall/package-operation policy stubs that explicitly remain restricted.
 
@@ -188,6 +188,7 @@ Read-only skills:
 
 - [x] `openwrt.status.summary`
 - [x] `openwrt.wifi.status`
+- [x] `openwrt.wifi.metrics`
 - [x] `openwrt.logs.recent`
 - [x] `openwrt.service.status`
 - [x] `openwrt.dns.diagnose`
@@ -318,7 +319,7 @@ Checklist:
 - [x] Wireless status through ubus.
 - [x] Wi-Fi reload confirmed action.
 - [x] Wi-Fi SSID/key/encryption update confirmed action.
-- [ ] iwinfo station/channel utilization wrapper.
+- [x] iwinfo station/channel utilization wrapper through safe `wifi-metrics --wifi-interface wlan0|wlan1`.
 
 ### logread wrapper
 
@@ -475,7 +476,7 @@ Use this queue for the next implementation passes:
 - [ ] Add LuCI confirmation UI for mutation actions.
 - [ ] Add rpcd ACL files in the OpenWrt feed.
 - [ ] Validate `EDGEPULSE_ENABLE_UBUS` build on OpenWrt target.
-- [ ] Add iwinfo wrapper for richer Wi-Fi diagnostics.
+- [x] Add iwinfo wrapper for richer Wi-Fi diagnostics through `wifi-metrics` and `openwrt.wifi.metrics`.
 - [ ] Add procd allowlisted service restart skill under stricter policy.
 
 ## 16. Strategic Direction

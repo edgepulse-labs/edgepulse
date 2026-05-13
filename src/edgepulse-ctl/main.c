@@ -118,6 +118,7 @@ struct agent_skill {
 	const char *source;
 	const char *version;
 	const char *source_path;
+	const char *inputs_schema;
 };
 
 struct agent_manifest_skill {
@@ -131,6 +132,7 @@ struct agent_manifest_skill {
 	char source[128];
 	char version[32];
 	char source_path[512];
+	char inputs_schema[1024];
 };
 
 struct agent_skill_registry {
@@ -142,6 +144,8 @@ static int json_extract_string_field(const char *json, const char *key,
 				     char *out, size_t out_size);
 static int json_extract_string_array_field(const char *json, const char *key,
 					   char values[][96], size_t max_values);
+static int json_extract_object_field(const char *json, const char *key,
+				     char *out, size_t out_size);
 static int json_extract_bool_field(const char *json, const char *key,
 				   int *value);
 static const struct agent_skill *agent_find_skill(const char *id);
@@ -3778,6 +3782,8 @@ static int EDGEPULSE_AGENT_UNUSED print_agent_action(int argc, char **argv)
 	return 2;
 }
 
+static const char agent_empty_inputs_schema[] = "{\"type\":\"object\",\"properties\":{}}";
+
 static const struct agent_skill agent_builtin_skills[] = {
 	{
 		.id = "openwrt.status.summary",
@@ -3795,7 +3801,8 @@ static const struct agent_skill agent_builtin_skills[] = {
 		},
 		.source = "builtin",
 		.version = "builtin",
-		.source_path = ""
+		.source_path = "",
+		.inputs_schema = agent_empty_inputs_schema
 	},
 	{
 		.id = "openwrt.wifi.status",
@@ -3811,7 +3818,8 @@ static const struct agent_skill agent_builtin_skills[] = {
 		},
 		.source = "builtin",
 		.version = "builtin",
-		.source_path = ""
+		.source_path = "",
+		.inputs_schema = agent_empty_inputs_schema
 	},
 	{
 		.id = "openwrt.wifi.metrics",
@@ -3828,7 +3836,8 @@ static const struct agent_skill agent_builtin_skills[] = {
 		},
 		.source = "builtin",
 		.version = "builtin",
-		.source_path = ""
+		.source_path = "",
+		.inputs_schema = agent_empty_inputs_schema
 	},
 	{
 		.id = "openwrt.interface.status",
@@ -3844,7 +3853,8 @@ static const struct agent_skill agent_builtin_skills[] = {
 		},
 		.source = "builtin",
 		.version = "builtin",
-		.source_path = ""
+		.source_path = "",
+		.inputs_schema = agent_empty_inputs_schema
 	},
 	{
 		.id = "openwrt.dhcp.status",
@@ -3860,7 +3870,8 @@ static const struct agent_skill agent_builtin_skills[] = {
 		},
 		.source = "builtin",
 		.version = "builtin",
-		.source_path = ""
+		.source_path = "",
+		.inputs_schema = agent_empty_inputs_schema
 	},
 	{
 		.id = "openwrt.logs.recent",
@@ -3876,7 +3887,8 @@ static const struct agent_skill agent_builtin_skills[] = {
 		},
 		.source = "builtin",
 		.version = "builtin",
-		.source_path = ""
+		.source_path = "",
+		.inputs_schema = agent_empty_inputs_schema
 	},
 	{
 		.id = "openwrt.service.status",
@@ -3892,7 +3904,8 @@ static const struct agent_skill agent_builtin_skills[] = {
 		},
 		.source = "builtin",
 		.version = "builtin",
-		.source_path = ""
+		.source_path = "",
+		.inputs_schema = agent_empty_inputs_schema
 	},
 	{
 		.id = "openwrt.dns.diagnose",
@@ -3909,7 +3922,8 @@ static const struct agent_skill agent_builtin_skills[] = {
 		},
 		.source = "builtin",
 		.version = "builtin",
-		.source_path = ""
+		.source_path = "",
+		.inputs_schema = agent_empty_inputs_schema
 	},
 	{
 		.id = "openwrt.wan.reconnect",
@@ -3929,7 +3943,8 @@ static const struct agent_skill agent_builtin_skills[] = {
 		},
 		.source = "builtin",
 		.version = "builtin",
-		.source_path = ""
+		.source_path = "",
+		.inputs_schema = agent_empty_inputs_schema
 	},
 	{
 		.id = "openwrt.wifi.restart",
@@ -3946,7 +3961,8 @@ static const struct agent_skill agent_builtin_skills[] = {
 		},
 		.source = "builtin",
 		.version = "builtin",
-		.source_path = ""
+		.source_path = "",
+		.inputs_schema = agent_empty_inputs_schema
 	},
 	{
 		.id = "openwrt.wifi.set_ssid",
@@ -3968,7 +3984,8 @@ static const struct agent_skill agent_builtin_skills[] = {
 		},
 		.source = "builtin",
 		.version = "builtin",
-		.source_path = ""
+		.source_path = "",
+		.inputs_schema = agent_empty_inputs_schema
 	},
 	{
 		.id = "openwrt.service.restart",
@@ -3985,7 +4002,8 @@ static const struct agent_skill agent_builtin_skills[] = {
 		},
 		.source = "builtin",
 		.version = "builtin",
-		.source_path = ""
+		.source_path = "",
+		.inputs_schema = agent_empty_inputs_schema
 	},
 };
 
@@ -4053,8 +4071,32 @@ static void agent_bind_manifest_skill(struct agent_manifest_skill *manifest)
 	manifest->skill.source = manifest->source;
 	manifest->skill.version = manifest->version;
 	manifest->skill.source_path = manifest->source_path;
+	manifest->skill.inputs_schema = manifest->inputs_schema;
 	for (int i = 0; i < AGENT_MAX_SKILL_STEPS && manifest->step_values[i][0]; i++)
 		manifest->skill.steps[i] = manifest->step_values[i];
+}
+
+static int agent_manifest_inputs_schema_valid(const char *action,
+					      const char *schema)
+{
+	if (!schema || schema[0] == '\0')
+		return 1;
+	if (strstr(schema, "\"type\"") && !strstr(schema, "\"object\""))
+		return 0;
+	if ((strcmp(action, "interface-status") == 0 ||
+	     strcmp(action, "dhcp-status") == 0) &&
+	    !strstr(schema, "\"interface\""))
+		return 0;
+	if (strcmp(action, "wifi-metrics") == 0 &&
+	    !strstr(schema, "\"wifi_interface\""))
+		return 0;
+	if (strcmp(action, "service-restart") == 0 &&
+	    !strstr(schema, "\"service\""))
+		return 0;
+	if (strcmp(action, "wifi-set") == 0 &&
+	    !strstr(schema, "\"ssid\""))
+		return 0;
+	return 1;
 }
 
 static int agent_load_manifest_skill(const char *source_name,
@@ -4088,6 +4130,14 @@ static int agent_load_manifest_skill(const char *source_name,
 	if (json_extract_string_field(json, "version", manifest->version,
 				      sizeof(manifest->version)) != 0)
 		snprintf(manifest->version, sizeof(manifest->version), "%s", "1");
+	if (json_extract_object_field(json, "inputs_schema",
+				      manifest->inputs_schema,
+				      sizeof(manifest->inputs_schema)) != 0)
+		snprintf(manifest->inputs_schema, sizeof(manifest->inputs_schema),
+			 "%s", agent_empty_inputs_schema);
+	if (!agent_manifest_inputs_schema_valid(manifest->action,
+						manifest->inputs_schema))
+		return -1;
 	confirm = strcmp(manifest->required_policy, "operator_confirmed") == 0;
 	read_only = strcmp(manifest->required_policy, "read_only") == 0;
 	if (json_extract_bool_field(json, "requires_confirm", &confirm) == 0 &&
@@ -4214,6 +4264,8 @@ static void print_agent_skill_json(const struct agent_config *agent,
 	print_json_string(skill->version ? skill->version : "1");
 	printf(", \"source_path\": ");
 	print_json_string(skill->source_path ? skill->source_path : "");
+	printf(", \"inputs_schema\": ");
+	printf("%s", skill->inputs_schema ? skill->inputs_schema : agent_empty_inputs_schema);
 	printf(", \"allowed\": %s", agent_skill_allowed(agent, skill) ? "true" : "false");
 	if (include_steps) {
 		printf(", \"steps\": [");
@@ -4913,6 +4965,63 @@ static int json_extract_string_array_field(const char *json, const char *key,
 	}
 
 	return count > 0 ? (int)count : -1;
+}
+
+static int json_extract_object_field(const char *json, const char *key,
+				     char *out, size_t out_size)
+{
+	char pattern[96];
+	const char *cursor;
+	int depth = 0;
+	int in_string = 0;
+	int escape = 0;
+	size_t used = 0;
+
+	if (!json || !key || !out || out_size == 0)
+		return -1;
+	out[0] = '\0';
+	snprintf(pattern, sizeof(pattern), "\"%s\"", key);
+	cursor = strstr(json, pattern);
+	if (!cursor)
+		return -1;
+	cursor = strchr(cursor + strlen(pattern), ':');
+	if (!cursor)
+		return -1;
+	cursor++;
+	while (*cursor == ' ' || *cursor == '\t' || *cursor == '\n' || *cursor == '\r')
+		cursor++;
+	if (*cursor != '{')
+		return -1;
+
+	while (*cursor && used + 1 < out_size) {
+		char c = *cursor++;
+		out[used++] = c;
+		if (escape) {
+			escape = 0;
+			continue;
+		}
+		if (c == '\\' && in_string) {
+			escape = 1;
+			continue;
+		}
+		if (c == '"') {
+			in_string = !in_string;
+			continue;
+		}
+		if (in_string)
+			continue;
+		if (c == '{')
+			depth++;
+		else if (c == '}') {
+			depth--;
+			if (depth == 0) {
+				out[used] = '\0';
+				return 0;
+			}
+		}
+	}
+	out[0] = '\0';
+	return -1;
 }
 
 static int json_extract_bool_field(const char *json, const char *key,

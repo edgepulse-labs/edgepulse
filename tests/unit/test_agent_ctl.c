@@ -404,6 +404,7 @@ static void test_agent_skill_registry(void)
 	const char *dir = "/tmp/edgepulse-agent-skills-test";
 	const char *manifest_path = "/tmp/edgepulse-agent-skills-test/custom.json";
 	const char *blocked_path = "/tmp/edgepulse-agent-skills-test/blocked.json";
+	const char *bad_schema_path = "/tmp/edgepulse-agent-skills-test/bad_schema.json";
 	FILE *fp;
 
 	init_agent_config(&agent, &model);
@@ -459,6 +460,7 @@ static void test_agent_skill_registry(void)
 	      "\"required_policy\":\"read_only\","
 	      "\"requires_confirm\":false,"
 	      "\"read_only\":true,"
+	      "\"inputs_schema\":{\"type\":\"object\",\"properties\":{}},"
 	      "\"steps\":[\"shell.uptime\"]"
 	      "}\n",
 	      fp);
@@ -479,11 +481,30 @@ static void test_agent_skill_registry(void)
 	      "}\n",
 	      fp);
 	fclose(fp);
+	fp = fopen(bad_schema_path, "w");
+	if (!fp) {
+		fprintf(stderr, "FAIL open bad schema skill manifest\n");
+		failures++;
+		return;
+	}
+	fputs("{"
+	      "\"id\":\"custom.bad_schema\","
+	      "\"title\":\"Bad Schema\","
+	      "\"description\":\"Missing required service input schema\","
+	      "\"action\":\"service-restart\","
+	      "\"required_policy\":\"operator_confirmed\","
+	      "\"requires_confirm\":true,"
+	      "\"inputs_schema\":{\"type\":\"object\",\"properties\":{}},"
+	      "\"steps\":[\"procd.service.restart\"]"
+	      "}\n",
+	      fp);
+	fclose(fp);
 	setenv("EDGEPULSE_SKILLS_DIR", dir, 1);
 	agent_load_skill_registry(&registry);
 	unsetenv("EDGEPULSE_SKILLS_DIR");
 	unlink(manifest_path);
 	unlink(blocked_path);
+	unlink(bad_schema_path);
 	rmdir(dir);
 
 	check_int("manifest registry count", (int)registry.manifest_count, 1);
@@ -496,8 +517,13 @@ static void test_agent_skill_registry(void)
 		     manifest_skill ? manifest_skill->version : "", "2");
 	check_string("manifest skill source path",
 		     manifest_skill ? manifest_skill->source_path : "", manifest_path);
+	check_contains("manifest inputs schema",
+		       manifest_skill ? manifest_skill->inputs_schema : "",
+		       "\"properties\":{}");
 	check_int("blocked manifest not loaded",
 		  agent_find_manifest_skill(&registry, "custom.blocked") == NULL, 1);
+	check_int("bad schema manifest not loaded",
+		  agent_find_manifest_skill(&registry, "custom.bad_schema") == NULL, 1);
 }
 
 static void test_agent_intent_and_redaction(void)
@@ -674,6 +700,11 @@ static void test_agent_mcp_json_helpers(void)
 					  &boolean),
 		  0);
 	check_int("json bool value", boolean, 1);
+	check_int("extract json object",
+		  json_extract_object_field("{\"inputs_schema\":{\"type\":\"object\",\"properties\":{\"service\":{\"type\":\"string\"}}}}",
+					    "inputs_schema", value, sizeof(value)),
+		  0);
+	check_contains("json object value", value, "\"service\"");
 	check_int("extract raw numeric id",
 		  json_extract_raw_field("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}",
 					 "id", value, sizeof(value)),

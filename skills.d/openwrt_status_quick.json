@@ -7,6 +7,10 @@
   "required_policy": "read_only",
   "requires_confirm": false,
   "read_only": true,
+  "inputs_schema": {
+    "type": "object",
+    "properties": {}
+  },
   "steps": [
     "shell.uptime",
     "ubus.network.interface.dump",

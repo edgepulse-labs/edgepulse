@@ -160,6 +160,10 @@ Current MVP manifest format maps a skill to a fixed local action:
   "required_policy": "read_only",
   "requires_confirm": false,
   "read_only": true,
+  "inputs_schema": {
+    "type": "object",
+    "properties": {}
+  },
   "steps": [
     "shell.uptime",
     "ubus.network.interface.dump",
@@ -181,7 +185,7 @@ Checklist:
 - [x] ubus exposes skill list/plan/run.
 - [x] Package install copies `skills.d/*.json` to `/usr/share/edgepulse/skills.d`.
 - [ ] Add strict schema validation with better error reporting for invalid manifests.
-- [ ] Add manifest `inputs_schema` support for validated action parameters.
+- [x] Add manifest `inputs_schema` support for validated action parameters.
 - [x] Add skill version tracking.
 - [ ] Add richer step metadata for policy, timeout, rollback, and verification.
 
@@ -213,7 +217,7 @@ Confirmed mutation skills:
 - [x] Validate manifest action against supported fixed actions.
 - [x] Map skill IDs to actions.
 - [x] Expose skill metadata.
-- [ ] Validate full schemas, including inputs and steps.
+- [x] Validate full schemas, including inputs and steps.
 - [x] Track manifest version and source path.
 
 ### 6.2 Skill Runner

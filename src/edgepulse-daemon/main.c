@@ -252,6 +252,8 @@ enum {
 	ACTION_SSID,
 	ACTION_KEY,
 	ACTION_ENCRYPTION,
+	ACTION_CONTAINS,
+	ACTION_LEVEL,
 	ACTION_MAX
 };
 
@@ -261,6 +263,8 @@ static const struct blobmsg_policy action_policy[ACTION_MAX] = {
 	[ACTION_SSID] = { .name = "ssid", .type = BLOBMSG_TYPE_STRING },
 	[ACTION_KEY] = { .name = "key", .type = BLOBMSG_TYPE_STRING },
 	[ACTION_ENCRYPTION] = { .name = "encryption", .type = BLOBMSG_TYPE_STRING },
+	[ACTION_CONTAINS] = { .name = "contains", .type = BLOBMSG_TYPE_STRING },
+	[ACTION_LEVEL] = { .name = "level", .type = BLOBMSG_TYPE_STRING },
 };
 
 enum {
@@ -291,6 +295,8 @@ enum {
 	MCP_SSID,
 	MCP_KEY,
 	MCP_ENCRYPTION,
+	MCP_CONTAINS,
+	MCP_LEVEL,
 	MCP_MAX
 };
 
@@ -305,6 +311,8 @@ static const struct blobmsg_policy mcp_tool_policy[MCP_MAX] = {
 	[MCP_SSID] = { .name = "ssid", .type = BLOBMSG_TYPE_STRING },
 	[MCP_KEY] = { .name = "key", .type = BLOBMSG_TYPE_STRING },
 	[MCP_ENCRYPTION] = { .name = "encryption", .type = BLOBMSG_TYPE_STRING },
+	[MCP_CONTAINS] = { .name = "contains", .type = BLOBMSG_TYPE_STRING },
+	[MCP_LEVEL] = { .name = "level", .type = BLOBMSG_TYPE_STRING },
 };
 
 static int agent_ubus_skill_plan(struct ubus_context *ctx,
@@ -397,7 +405,7 @@ static int agent_ubus_mcp_tools_call(struct ubus_context *ctx,
 {
 	struct blob_attr *tb[MCP_MAX];
 	char output[16384];
-	char *argv[18];
+	char *argv[22];
 	const char *name;
 	int argc = 0;
 	int rc;
@@ -474,6 +482,16 @@ static int agent_ubus_mcp_tools_call(struct ubus_context *ctx,
 		argv[argc++] = "--interface";
 		argv[argc++] = (char *)blobmsg_get_string(tb[MCP_INTERFACE]);
 	}
+	if (strcmp(name, "edgepulse.agent.action.run") == 0 &&
+	    tb[MCP_CONTAINS]) {
+		argv[argc++] = "--contains";
+		argv[argc++] = (char *)blobmsg_get_string(tb[MCP_CONTAINS]);
+	}
+	if (strcmp(name, "edgepulse.agent.action.run") == 0 &&
+	    tb[MCP_LEVEL]) {
+		argv[argc++] = "--level";
+		argv[argc++] = (char *)blobmsg_get_string(tb[MCP_LEVEL]);
+	}
 	argv[argc] = NULL;
 
 	rc = capture_agent_ctl(argv, output, sizeof(output));
@@ -489,7 +507,7 @@ static int agent_ubus_action_run(struct ubus_context *ctx,
 {
 	struct blob_attr *tb[ACTION_MAX];
 	char output[16384];
-	char *argv[14];
+	char *argv[18];
 	int argc = 0;
 	int rc;
 
@@ -517,6 +535,14 @@ static int agent_ubus_action_run(struct ubus_context *ctx,
 	if (tb[ACTION_ENCRYPTION]) {
 		argv[argc++] = "--encryption";
 		argv[argc++] = (char *)blobmsg_get_string(tb[ACTION_ENCRYPTION]);
+	}
+	if (tb[ACTION_CONTAINS]) {
+		argv[argc++] = "--contains";
+		argv[argc++] = (char *)blobmsg_get_string(tb[ACTION_CONTAINS]);
+	}
+	if (tb[ACTION_LEVEL]) {
+		argv[argc++] = "--level";
+		argv[argc++] = (char *)blobmsg_get_string(tb[ACTION_LEVEL]);
 	}
 	argv[argc] = NULL;
 	rc = capture_agent_ctl(argv, output, sizeof(output));

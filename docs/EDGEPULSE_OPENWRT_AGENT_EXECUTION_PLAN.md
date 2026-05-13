@@ -323,7 +323,7 @@ Checklist:
 ### logread wrapper
 
 - [x] Bounded `logread -l 80`.
-- [ ] Structured log filtering and redaction.
+- [x] Structured log filtering and redaction through safe `logs-recent --contains` and `--level` filters plus token/API-key/password output redaction.
 
 ## 9. Long-Running Agent Service
 

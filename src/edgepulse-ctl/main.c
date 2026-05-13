@@ -1,5 +1,6 @@
 #include "edgepulse.h"
 
+#include <ctype.h>
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -193,6 +194,16 @@ static int starts_sensitive_token(const char *value)
 		strncmp(value, "wireless.@wifi-iface[0].key=", 29) == 0;
 }
 
+static int sensitive_token_has_boundary(const char *input, const char *p)
+{
+	unsigned char prev;
+
+	if (p == input)
+		return 1;
+	prev = (unsigned char)*(p - 1);
+	return !(isalnum(prev) || prev == '_');
+}
+
 static void redact_wifi_keys(const char *input, char *out, size_t out_size)
 {
 	const char *p = input ? input : "";
@@ -202,7 +213,8 @@ static void redact_wifi_keys(const char *input, char *out, size_t out_size)
 		return;
 
 	while (*p && used + 1 < out_size) {
-		if (starts_sensitive_token(p)) {
+		if (sensitive_token_has_boundary(input, p) &&
+		    starts_sensitive_token(p)) {
 			const char *end = p;
 			int written;
 			while (*end && *end != '\n' && *end != '\r' &&
@@ -228,6 +240,88 @@ static void redact_wifi_keys(const char *input, char *out, size_t out_size)
 				end++;
 			written = snprintf(out + used, out_size - used, "%s",
 					   "\\\"key\\\":\\\"redacted\\\"");
+			if (written < 0)
+				break;
+			if ((size_t)written >= out_size - used) {
+				used = out_size - 1;
+				break;
+			}
+			used += (size_t)written;
+			p = end;
+			continue;
+		}
+		out[used++] = *p++;
+	}
+	out[used] = '\0';
+}
+
+static int redact_pattern_matches(const char *p, const char **replacement,
+				  size_t *prefix_len)
+{
+	struct redaction_pattern {
+		const char *prefix;
+		const char *replacement;
+	};
+	static const struct redaction_pattern patterns[] = {
+		{ "api_key=", "api_key=redacted" },
+		{ "token=", "token=redacted" },
+		{ "access_token=", "access_token=redacted" },
+		{ "password=", "password=redacted" },
+		{ "secret=", "secret=redacted" },
+		{ "pppoe_password=", "pppoe_password=redacted" },
+		{ "option api_key ", "option api_key redacted" },
+		{ "option token ", "option token redacted" },
+		{ "option password ", "option password redacted" },
+		{ "option pppoe_password ", "option pppoe_password redacted" },
+		{ "\"api_key\":\"", "\"api_key\":\"redacted\"" },
+		{ "\"token\":\"", "\"token\":\"redacted\"" },
+		{ "\"access_token\":\"", "\"access_token\":\"redacted\"" },
+		{ "\"password\":\"", "\"password\":\"redacted\"" },
+		{ "\"secret\":\"", "\"secret\":\"redacted\"" },
+		{ "\"pppoe_password\":\"", "\"pppoe_password\":\"redacted\"" },
+		{ "\\\"api_key\\\":\\\"", "\\\"api_key\\\":\\\"redacted\\\"" },
+		{ "\\\"token\\\":\\\"", "\\\"token\\\":\\\"redacted\\\"" },
+		{ "\\\"access_token\\\":\\\"", "\\\"access_token\\\":\\\"redacted\\\"" },
+		{ "\\\"password\\\":\\\"", "\\\"password\\\":\\\"redacted\\\"" },
+		{ "\\\"secret\\\":\\\"", "\\\"secret\\\":\\\"redacted\\\"" },
+		{ "\\\"pppoe_password\\\":\\\"", "\\\"pppoe_password\\\":\\\"redacted\\\"" },
+	};
+
+	for (size_t i = 0; i < sizeof(patterns) / sizeof(patterns[0]); i++) {
+		size_t len = strlen(patterns[i].prefix);
+		if (strncmp(p, patterns[i].prefix, len) == 0) {
+			*replacement = patterns[i].replacement;
+			*prefix_len = len;
+			return 1;
+		}
+	}
+	return 0;
+}
+
+static void redact_sensitive_output(const char *input, char *out, size_t out_size)
+{
+	char wifi_redacted[2048];
+	const char *p;
+	size_t used = 0;
+
+	if (!out || out_size == 0)
+		return;
+
+	redact_wifi_keys(input, wifi_redacted, sizeof(wifi_redacted));
+	p = wifi_redacted;
+
+	while (*p && used + 1 < out_size) {
+		const char *replacement = NULL;
+		size_t prefix_len = 0;
+		if (redact_pattern_matches(p, &replacement, &prefix_len)) {
+			const char *end = p + prefix_len;
+			int written;
+			while (*end && *end != '\n' && *end != '\r' &&
+			       *end != ',' && *end != '}' &&
+			       *end != ' ' && *end != '\t')
+				end++;
+			written = snprintf(out + used, out_size - used, "%s",
+					   replacement);
 			if (written < 0)
 				break;
 			if ((size_t)written >= out_size - used) {
@@ -1033,7 +1127,8 @@ static void print_agent_tool_json_mode(const struct agent_tool_result *result,
 {
 	char redacted_output[sizeof(result->output)];
 
-	redact_wifi_keys(result->output, redacted_output, sizeof(redacted_output));
+	redact_sensitive_output(result->output, redacted_output,
+				sizeof(redacted_output));
 	printf("    { \"name\": ");
 	print_json_string(result->name);
 	printf(", \"mode\": ");
@@ -2868,6 +2963,96 @@ static int agent_text_contains_ci(const char *text, const char *needle)
 	return 0;
 }
 
+static int agent_log_filter_value_is_safe(const char *value)
+{
+	size_t len;
+
+	if (!value)
+		return 1;
+	len = strlen(value);
+	if (len == 0 || len > 64)
+		return 0;
+	for (size_t i = 0; i < len; i++) {
+		unsigned char c = (unsigned char)value[i];
+		if (!(isalnum(c) || c == ' ' || c == '.' || c == '_' ||
+		      c == '-' || c == ':' || c == '/' || c == '@'))
+			return 0;
+	}
+	return 1;
+}
+
+static int agent_log_level_is_safe(const char *level)
+{
+	return !level ||
+		strcmp(level, "error") == 0 ||
+		strcmp(level, "warn") == 0 ||
+		strcmp(level, "info") == 0 ||
+		strcmp(level, "debug") == 0;
+}
+
+static int agent_log_line_matches_level(const char *line, const char *level)
+{
+	if (!level)
+		return 1;
+	if (strcmp(level, "error") == 0)
+		return agent_text_contains_ci(line, "error") ||
+			agent_text_contains_ci(line, "err");
+	if (strcmp(level, "warn") == 0)
+		return agent_text_contains_ci(line, "warn");
+	if (strcmp(level, "info") == 0)
+		return agent_text_contains_ci(line, "info") ||
+			agent_text_contains_ci(line, "notice");
+	if (strcmp(level, "debug") == 0)
+		return agent_text_contains_ci(line, "debug");
+	return 0;
+}
+
+static void agent_filter_log_output(struct agent_tool_result *result,
+				    const char *contains,
+				    const char *level)
+{
+	char filtered[sizeof(result->output)];
+	char line[512];
+	const char *p = result->output;
+	size_t used = 0;
+
+	if (!contains && !level)
+		return;
+
+	filtered[0] = '\0';
+	while (*p && used + 1 < sizeof(filtered)) {
+		size_t line_len = 0;
+		while (p[line_len] && p[line_len] != '\n' &&
+		       line_len + 1 < sizeof(line))
+			line_len++;
+		memcpy(line, p, line_len);
+		line[line_len] = '\0';
+
+		if ((!contains || agent_text_contains_ci(line, contains)) &&
+		    agent_log_line_matches_level(line, level)) {
+			char redacted[sizeof(line)];
+			int written;
+
+			redact_sensitive_output(line, redacted, sizeof(redacted));
+			written = snprintf(filtered + used, sizeof(filtered) - used,
+					   "%s%s", redacted, p[line_len] == '\n' ? "\n" : "");
+			if (written < 0)
+				break;
+			if ((size_t)written >= sizeof(filtered) - used) {
+				used = sizeof(filtered) - 1;
+				break;
+			}
+			used += (size_t)written;
+		}
+
+		p += line_len;
+		if (*p == '\n')
+			p++;
+	}
+	filtered[used] = '\0';
+	snprintf(result->output, sizeof(result->output), "%s", filtered);
+}
+
 static const char *agent_classify_intent(const char *message)
 {
 	if (!message || message[0] == '\0')
@@ -2993,7 +3178,7 @@ static int EDGEPULSE_AGENT_UNUSED print_agent_action(int argc, char **argv)
 	int result_count = 0;
 
 	if (argc < 4) {
-		fprintf(stderr, "Usage: edgepulse-ctl agent action <status|interface-status|dhcp-status|wifi-status|logs-recent|service-status|dns-diagnose|reconnect-wan|wifi-restart|wifi-set> [--confirm] [options]\n");
+		fprintf(stderr, "Usage: edgepulse-ctl agent action <status|interface-status|dhcp-status|wifi-status|logs-recent|service-status|dns-diagnose|reconnect-wan|wifi-restart|wifi-set> [--confirm] [--contains text] [--level error|warn|info|debug] [options]\n");
 		return 2;
 	}
 
@@ -3018,6 +3203,8 @@ static int EDGEPULSE_AGENT_UNUSED print_agent_action(int argc, char **argv)
 	    strcmp(action, "service-status") == 0 ||
 	    strcmp(action, "dns-diagnose") == 0) {
 		const char *interface = agent_arg_value(argc - 4, argv + 4, "--interface");
+		const char *log_contains = agent_arg_value(argc - 4, argv + 4, "--contains");
+		const char *log_level = agent_arg_value(argc - 4, argv + 4, "--level");
 		char *const uptime_argv[] = { "uptime", NULL };
 		char *const network_argv[] = { "ubus", "call", "network.interface", "dump", NULL };
 		char interface_object[96];
@@ -3034,6 +3221,12 @@ static int EDGEPULSE_AGENT_UNUSED print_agent_action(int argc, char **argv)
 		     strcmp(action, "dhcp-status") == 0) &&
 		    !agent_interface_is_safe(interface)) {
 			fprintf(stderr, "edgepulse-ctl: --interface must be wan, lan, or wwan\n");
+			return 2;
+		}
+		if (strcmp(action, "logs-recent") == 0 &&
+		    (!agent_log_filter_value_is_safe(log_contains) ||
+		     !agent_log_level_is_safe(log_level))) {
+			fprintf(stderr, "edgepulse-ctl: log filters must use safe text and --level error|warn|info|debug\n");
 			return 2;
 		}
 		snprintf(interface_object, sizeof(interface_object),
@@ -3076,7 +3269,10 @@ static int EDGEPULSE_AGENT_UNUSED print_agent_action(int argc, char **argv)
 			agent_run_read_only_command("shell.logread", logs_argv,
 						    agent.tool_timeout_sec,
 						    agent.max_tool_output_bytes,
-						    &results[result_count++]);
+						    &results[result_count]);
+			agent_filter_log_output(&results[result_count],
+						log_contains, log_level);
+			result_count++;
 		} else if (strcmp(action, "service-status") == 0) {
 			agent_run_read_only_command("ubus.service.list",
 						    service_argv,
@@ -3272,7 +3468,7 @@ static int EDGEPULSE_AGENT_UNUSED print_agent_action(int argc, char **argv)
 		return 0;
 	}
 
-	fprintf(stderr, "Usage: edgepulse-ctl agent action <status|interface-status|dhcp-status|wifi-status|logs-recent|service-status|dns-diagnose|reconnect-wan|wifi-restart|wifi-set> [--confirm] [options]\n");
+	fprintf(stderr, "Usage: edgepulse-ctl agent action <status|interface-status|dhcp-status|wifi-status|logs-recent|service-status|dns-diagnose|reconnect-wan|wifi-restart|wifi-set> [--confirm] [--contains text] [--level error|warn|info|debug] [options]\n");
 	return 2;
 }
 
@@ -3891,7 +4087,7 @@ static void print_agent_mcp_input_schema(const char *name)
 		return;
 	}
 	if (strcmp(name, "edgepulse.agent.action.run") == 0) {
-		printf("{\"type\":\"object\",\"properties\":{\"action\":{\"type\":\"string\",\"enum\":[\"status\",\"interface-status\",\"dhcp-status\",\"wifi-status\",\"logs-recent\",\"service-status\",\"dns-diagnose\",\"reconnect-wan\",\"wifi-restart\",\"wifi-set\"]},\"interface\":{\"type\":\"string\",\"enum\":[\"wan\",\"lan\",\"wwan\"],\"description\":\"Safe OpenWrt interface name for interface-status and dhcp-status\"},\"confirm\":{\"type\":\"boolean\",\"description\":\"Explicit operator confirmation for mutation actions\"},\"ssid\":{\"type\":\"string\",\"description\":\"Wi-Fi SSID for wifi-set\"},\"key\":{\"type\":\"string\",\"description\":\"Wi-Fi key for wifi-set\"},\"encryption\":{\"type\":\"string\",\"enum\":[\"none\",\"psk2\",\"sae-mixed\"]}},\"required\":[\"action\"]}");
+		printf("{\"type\":\"object\",\"properties\":{\"action\":{\"type\":\"string\",\"enum\":[\"status\",\"interface-status\",\"dhcp-status\",\"wifi-status\",\"logs-recent\",\"service-status\",\"dns-diagnose\",\"reconnect-wan\",\"wifi-restart\",\"wifi-set\"]},\"interface\":{\"type\":\"string\",\"enum\":[\"wan\",\"lan\",\"wwan\"],\"description\":\"Safe OpenWrt interface name for interface-status and dhcp-status\"},\"contains\":{\"type\":\"string\",\"description\":\"Safe substring filter for logs-recent output\"},\"level\":{\"type\":\"string\",\"enum\":[\"error\",\"warn\",\"info\",\"debug\"],\"description\":\"Best-effort log severity filter for logs-recent output\"},\"confirm\":{\"type\":\"boolean\",\"description\":\"Explicit operator confirmation for mutation actions\"},\"ssid\":{\"type\":\"string\",\"description\":\"Wi-Fi SSID for wifi-set\"},\"key\":{\"type\":\"string\",\"description\":\"Wi-Fi key for wifi-set\"},\"encryption\":{\"type\":\"string\",\"enum\":[\"none\",\"psk2\",\"sae-mixed\"]}},\"required\":[\"action\"]}");
 		return;
 	}
 	printf("{\"type\":\"object\",\"properties\":{}}");
@@ -4363,6 +4559,8 @@ static void handle_agent_mcp_jsonrpc_line(const char *line)
 	char ssid[128] = "";
 	char key[128] = "";
 	char encryption[64] = "";
+	char contains[128] = "";
+	char level[32] = "";
 	char captured[16384];
 	char *call_argv[20];
 	int call_argc = 0;
@@ -4478,6 +4676,16 @@ static void handle_agent_mcp_jsonrpc_line(const char *line)
 					      sizeof(interface)) == 0) {
 			call_argv[call_argc++] = "--interface";
 			call_argv[call_argc++] = interface;
+		}
+		if (json_extract_string_field(line, "contains", contains,
+					      sizeof(contains)) == 0) {
+			call_argv[call_argc++] = "--contains";
+			call_argv[call_argc++] = contains;
+		}
+		if (json_extract_string_field(line, "level", level,
+					      sizeof(level)) == 0) {
+			call_argv[call_argc++] = "--level";
+			call_argv[call_argc++] = level;
 		}
 	}
 	call_argv[call_argc] = NULL;

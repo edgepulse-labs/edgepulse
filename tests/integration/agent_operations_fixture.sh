@@ -61,6 +61,9 @@ EOF_UBUS
 cat >"$BIN_DIR/logread" <<'EOF_LOGREAD'
 #!/bin/sh
 printf 'edgepulse-agent: fixture recent log\n'
+printf 'daemon.err edgepulse-agent: api_key=fixture-api-key token=fixture-token failed to reach backend\n'
+printf 'daemon.warn netifd: wan warning recovered\n'
+printf 'daemon.info edgepulse-agent: routine status ok\n'
 EOF_LOGREAD
 
 cat >"$BIN_DIR/uci" <<'EOF_UCI'
@@ -118,6 +121,20 @@ printf '%s\n' "$dhcp_out" | grep -q '"action": "dhcp-status"' ||
 	fail "dhcp-status did not complete action path"
 printf '%s\n' "$dhcp_out" | grep -q 'lease-acquired' ||
 	fail "dhcp-status did not return DHCP state fixture output"
+
+logs_out="$("$ROOT/edgepulse-ctl" agent action logs-recent --contains backend --level error)"
+printf '%s\n' "$logs_out" | grep -q '"action": "logs-recent"' ||
+	fail "logs-recent did not complete action path"
+printf '%s\n' "$logs_out" | grep -q 'failed to reach backend' ||
+	fail "logs-recent did not keep matching filtered line"
+printf '%s\n' "$logs_out" | grep -q 'routine status ok' &&
+	fail "logs-recent did not filter non-matching lines"
+printf '%s\n' "$logs_out" | grep -q 'fixture-api-key' &&
+	fail "logs-recent leaked API key"
+printf '%s\n' "$logs_out" | grep -q 'fixture-token' &&
+	fail "logs-recent leaked token"
+printf '%s\n' "$logs_out" | grep -q 'api_key=redacted' ||
+	fail "logs-recent did not redact API key"
 
 wifi_restart_out="$("$ROOT/edgepulse-ctl" agent action wifi-restart --confirm)"
 printf '%s\n' "$wifi_restart_out" | grep -q '"action": "wifi-restart"' ||

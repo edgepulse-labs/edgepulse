@@ -493,6 +493,22 @@ static void test_agent_intent_and_redaction(void)
 		fprintf(stderr, "FAIL redact json key secret remained: %s\n", redacted);
 		failures++;
 	}
+
+	redact_sensitive_output("api_key=secret-token token=another-secret\nok",
+				redacted, sizeof(redacted));
+	check_contains("redact api key", redacted, "api_key=redacted");
+	check_contains("redact token", redacted, "token=redacted");
+	if (strstr(redacted, "secret-token") || strstr(redacted, "another-secret")) {
+		fprintf(stderr, "FAIL generic redaction secret remained: %s\n", redacted);
+		failures++;
+	}
+
+	check_int("safe log contains filter",
+		  agent_log_filter_value_is_safe("edgepulse-agent backend"), 1);
+	check_int("unsafe log contains filter",
+		  agent_log_filter_value_is_safe("backend\"quoted"), 0);
+	check_int("safe log level", agent_log_level_is_safe("warn"), 1);
+	check_int("unsafe log level", agent_log_level_is_safe("trace"), 0);
 }
 
 static void test_agent_conversation_storage(void)

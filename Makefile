@@ -6,6 +6,7 @@ LDLIBS ?= -lsqlite3 -lm
 INSTALL ?= install
 INSTALL_DIR ?= $(INSTALL) -d -m 0755
 INSTALL_BIN ?= $(INSTALL) -m 0755
+INSTALL_DATA ?= $(INSTALL) -m 0644
 DESTDIR ?=
 
 TARGET := edgepulse
@@ -13,6 +14,7 @@ CTL_TARGET := edgepulse-ctl
 TEST_TARGET := tests/unit/test_edgepulse
 AGENT_TEST_TARGET := tests/unit/test_agent_ctl
 MOCK_OPENAI_SERVER := tests/integration/mock_openai_server
+SKILL_MANIFESTS := $(wildcard skills.d/*.json)
 LIB_SRCS := src/edgepulse-lib/edgepulse.c
 DAEMON_SRCS := src/edgepulse-daemon/main.c
 CTL_SRCS := src/edgepulse-ctl/main.c
@@ -67,3 +69,7 @@ install: $(TARGET) $(CTL_TARGET)
 	$(INSTALL_DIR) $(DESTDIR)/usr/bin
 	$(INSTALL_BIN) $(TARGET) $(DESTDIR)/usr/bin/$(TARGET)
 	$(INSTALL_BIN) $(CTL_TARGET) $(DESTDIR)/usr/bin/$(CTL_TARGET)
+ifneq ($(SKILL_MANIFESTS),)
+	$(INSTALL_DIR) $(DESTDIR)/usr/share/edgepulse/skills.d
+	$(INSTALL_DATA) $(SKILL_MANIFESTS) $(DESTDIR)/usr/share/edgepulse/skills.d/
+endif

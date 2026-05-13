@@ -19,8 +19,8 @@ Ownership split:
   package recipe, default UCI config, init scripts, uci-defaults, and LuCI
   application files.
 - Current package capabilities include telemetry, feature export, LuCI pages,
-  AI Agent settings/diagnostics, shared chat helper commands, policy-gated
-  OpenWrt actions, and the local C MCP adapter.
+  AI Agent settings/diagnostics, shared chat helper commands, deterministic
+  skill manifests, policy-gated OpenWrt actions, and the local C MCP adapter.
 
 Use it from an OpenWrt buildroot with a local feed line:
 
@@ -66,6 +66,10 @@ edgepulse-ctl agent mcp methods
 edgepulse-ctl agent mcp call <method> [args]
 edgepulse-ctl agent mcp serve
 ```
+
+Skill manifests in this source tree are installed to
+`/usr/share/edgepulse/skills.d`. Runtime overrides can point
+`EDGEPULSE_SKILLS_DIR` at another manifest directory during local testing.
 
 See [`docs/project-status-and-roadmap.md`](../../docs/project-status-and-roadmap.md)
 for the current implementation status and planned next steps.

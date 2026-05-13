@@ -18,10 +18,12 @@ This document defines how EdgePulse supports shared AI Agent conversations acros
 Implemented:
 
 - CLI shared chat: `edgepulse-ctl agent chat ask <conversation_id> <message>` and `edgepulse-ctl agent chat list [conversation_id]`.
+- CLI deterministic skills: `edgepulse-ctl agent skill list`, `skill plan <skill_id>`, and `skill run <skill_id> [--confirm] [options]`, backed by built-in skills plus validated JSON manifests.
 - LuCI helper shared chat: `/usr/libexec/edgepulse-luci agent-chat-ask` and `agent-chat-list`.
 - LuCI AI Agent page loads shared transcript state and renders Diagnostic output as a human-readable report.
 - UCI defaults include `chat_enabled`, `default_conversation_id`, and `mcp_enabled`.
-- Local C MCP adapter exposes chat, status, action, audit, read-only `ubus`, and limited EdgePulse UCI methods.
+- Local C MCP adapter exposes chat, status, skill, action, audit, read-only `ubus`, and limited EdgePulse UCI methods.
+- Skill manifests can be loaded from `EDGEPULSE_SKILLS_DIR`, local `skills.d/`, or `/usr/share/edgepulse/skills.d`; manifests only map to fixed EdgePulse actions.
 - OpenWrt One validation confirmed CLI, LuCI helper, and MCP stdio can read the same conversation history.
 
 ## Shared Conversation Model
@@ -154,6 +156,9 @@ The bridge should expose a small, stable method set:
 | `edgepulse.agent.status`     | `edgepulse-ctl agent status`                               |
 | `edgepulse.agent.chat.list`  | `edgepulse-ctl agent chat list [conversation_id]`          |
 | `edgepulse.agent.chat.ask`   | `edgepulse-ctl agent chat ask <conversation_id> <message>` |
+| `edgepulse.agent.skill.list` | `edgepulse-ctl agent skill list`                           |
+| `edgepulse.agent.skill.plan` | `edgepulse-ctl agent skill plan <skill_id>`                |
+| `edgepulse.agent.skill.run`  | `edgepulse-ctl agent skill run <skill_id> [--confirm]`     |
 | `edgepulse.agent.action.run` | `edgepulse-ctl agent action <action> [--confirm]`          |
 | `edgepulse.agent.audit.list` | `edgepulse-ctl agent audit list`                           |
 | `edgepulse.ubus.status.network` | read-only `ubus call network.interface dump`            |
@@ -173,6 +178,8 @@ For state-changing methods, the MCP bridge must pass explicit confirmation and t
 - [x] Add a local C MCP stdio adapter with `initialize`, `tools/list`, and `tools/call`.
 - [x] Validate that CLI, LuCI helper, and MCP can see the same conversation history on OpenWrt One.
 - [x] Add an EdgePulse `ubus` object for local agent calls.
+- [x] Add built-in deterministic skill list, plan, and run paths over CLI, MCP, and ubus.
+- [x] Add validated JSON skill manifest loading and package install support.
 - [ ] Add LuCI conversation selection and operation shortcuts.
 - [x] Add end-to-end tests for mixed-origin CLI, LuCI, and MCP conversation writes.
 - [ ] If `openwrt-mcp-server` returns to scope, update its executor to call EdgePulse local APIs instead of placeholder command execution.

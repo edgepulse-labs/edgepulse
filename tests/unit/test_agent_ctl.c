@@ -47,6 +47,7 @@ static void test_agent_policy_allowlist(void)
 	char *const uptime_ok[] = { "uptime", NULL };
 	char *const ubus_ok[] = { "ubus", "call", "system", "board", NULL };
 	char *const wireless_ok[] = { "ubus", "call", "network.wireless", "status", NULL };
+	char *const service_ok[] = { "ubus", "call", "service", "list", NULL };
 	char *const logread_ok[] = { "logread", "-l", "80", NULL };
 	char *const logread_denied[] = { "logread", "-f", NULL };
 	char *const ping_ip_ok[] = { "ping", "-c", "1", "-W", "2", "1.1.1.1", NULL };
@@ -65,6 +66,7 @@ static void test_agent_policy_allowlist(void)
 	check_int("allow uptime", agent_command_allowed(uptime_ok), 1);
 	check_int("allow ubus system board", agent_command_allowed(ubus_ok), 1);
 	check_int("allow ubus wireless status", agent_command_allowed(wireless_ok), 1);
+	check_int("allow ubus service list", agent_command_allowed(service_ok), 1);
 	check_int("allow bounded logread", agent_command_allowed(logread_ok), 1);
 	check_int("deny streaming logread", agent_command_allowed(logread_denied), 0);
 	check_int("allow bounded ping", agent_command_allowed(ping_ip_ok), 1);
@@ -345,6 +347,97 @@ static void test_agent_validation_warnings(void)
 	check_int("remote http warns", agent_config_has_warnings(&agent, &model), 1);
 }
 
+static void test_agent_skill_registry(void)
+{
+	struct agent_config agent;
+	struct agent_model_config model;
+	struct agent_skill_registry registry;
+	const struct agent_skill *status_skill;
+	const struct agent_skill *wan_skill;
+	const struct agent_skill *manifest_skill;
+	const char *dir = "/tmp/edgepulse-agent-skills-test";
+	const char *manifest_path = "/tmp/edgepulse-agent-skills-test/custom.json";
+	const char *blocked_path = "/tmp/edgepulse-agent-skills-test/blocked.json";
+	FILE *fp;
+
+	init_agent_config(&agent, &model);
+	status_skill = agent_find_skill("openwrt.status.summary");
+	wan_skill = agent_find_skill("openwrt.wan.reconnect");
+
+	check_int("skill count", (int)agent_skill_count(), 7);
+	check_string("find status skill action",
+		     status_skill ? status_skill->action : "", "status");
+	check_int("status skill read only", status_skill ? status_skill->read_only : 0, 1);
+	check_int("status skill allowed in read only",
+		  agent_skill_allowed(&agent, status_skill), 1);
+	check_string("find wan skill action",
+		     wan_skill ? wan_skill->action : "", "reconnect-wan");
+	check_int("wan skill requires confirm",
+		  wan_skill ? wan_skill->requires_confirm : 0, 1);
+	check_int("wan skill blocked in read only",
+		  agent_skill_allowed(&agent, wan_skill), 0);
+	snprintf(agent.policy_profile, sizeof(agent.policy_profile), "%s",
+		 "operator_confirmed");
+	check_int("wan skill allowed in operator policy",
+		  agent_skill_allowed(&agent, wan_skill), 1);
+	agent.allow_reconnect_wan = 0;
+	check_int("wan skill per-action disabled",
+		  agent_skill_allowed(&agent, wan_skill), 0);
+	check_int("unknown skill not found",
+		  agent_find_skill("openwrt.unknown") == NULL, 1);
+
+	mkdir(dir, 0700);
+	fp = fopen(manifest_path, "w");
+	if (!fp) {
+		fprintf(stderr, "FAIL open skill manifest\n");
+		failures++;
+		return;
+	}
+	fputs("{"
+	      "\"id\":\"custom.status\","
+	      "\"title\":\"Custom Status\","
+	      "\"description\":\"Custom read-only status wrapper\","
+	      "\"action\":\"status\","
+	      "\"required_policy\":\"read_only\","
+	      "\"requires_confirm\":false,"
+	      "\"read_only\":true,"
+	      "\"steps\":[\"shell.uptime\"]"
+	      "}\n",
+	      fp);
+	fclose(fp);
+	fp = fopen(blocked_path, "w");
+	if (!fp) {
+		fprintf(stderr, "FAIL open blocked skill manifest\n");
+		failures++;
+		return;
+	}
+	fputs("{"
+	      "\"id\":\"custom.blocked\","
+	      "\"title\":\"Blocked\","
+	      "\"description\":\"Unsupported action should not load\","
+	      "\"action\":\"shell\","
+	      "\"required_policy\":\"read_only\","
+	      "\"steps\":[\"shell.anything\"]"
+	      "}\n",
+	      fp);
+	fclose(fp);
+	setenv("EDGEPULSE_SKILLS_DIR", dir, 1);
+	agent_load_skill_registry(&registry);
+	unsetenv("EDGEPULSE_SKILLS_DIR");
+	unlink(manifest_path);
+	unlink(blocked_path);
+	rmdir(dir);
+
+	check_int("manifest registry count", (int)registry.manifest_count, 1);
+	manifest_skill = agent_find_manifest_skill(&registry, "custom.status");
+	check_string("manifest skill action",
+		     manifest_skill ? manifest_skill->action : "", "status");
+	check_string("manifest skill source",
+		     manifest_skill ? manifest_skill->source : "", "custom.json");
+	check_int("blocked manifest not loaded",
+		  agent_find_manifest_skill(&registry, "custom.blocked") == NULL, 1);
+}
+
 static void test_agent_intent_and_redaction(void)
 {
 	char redacted[256];
@@ -454,6 +547,7 @@ int main(void)
 	test_agent_uci_parsing();
 	test_agent_model_request_and_payload();
 	test_agent_validation_warnings();
+	test_agent_skill_registry();
 	test_agent_intent_and_redaction();
 	test_agent_conversation_storage();
 	test_agent_mcp_json_helpers();

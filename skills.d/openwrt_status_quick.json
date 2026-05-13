@@ -1,0 +1,14 @@
+{
+  "id": "openwrt.status.quick",
+  "title": "Quick OpenWrt Status",
+  "description": "Manifest-loaded read-only status skill that maps to the fixed EdgePulse status action.",
+  "action": "status",
+  "required_policy": "read_only",
+  "requires_confirm": false,
+  "read_only": true,
+  "steps": [
+    "shell.uptime",
+    "ubus.network.interface.dump",
+    "ubus.network.wireless.status"
+  ]
+}

@@ -1,5 +1,6 @@
 #include "edgepulse.h"
 
+#include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <netdb.h>
@@ -9,6 +10,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <syslog.h>
 #include <sys/time.h>
 #include <sys/types.h>
@@ -20,6 +22,10 @@
 
 #define AGENT_STR_SIZE 256
 #define AGENT_MAX_MODELS 8
+#define AGENT_MAX_SKILL_ARGS 12
+#define AGENT_MAX_MANIFEST_SKILLS 16
+#define AGENT_MAX_SKILL_STEPS 8
+#define EDGEPULSE_SKILLS_DIR "/usr/share/edgepulse/skills.d"
 
 #ifndef EDGEPULSE_ENABLE_AI_AGENT
 #define EDGEPULSE_AGENT_UNUSED __attribute__((unused))
@@ -96,6 +102,45 @@ struct agent_model_response {
 	char text[8192];
 	char finish_reason[64];
 };
+
+struct agent_skill {
+	const char *id;
+	const char *title;
+	const char *description;
+	const char *action;
+	const char *required_policy;
+	int requires_confirm;
+	int read_only;
+	const char *steps[AGENT_MAX_SKILL_STEPS];
+	const char *source;
+};
+
+struct agent_manifest_skill {
+	struct agent_skill skill;
+	char id[128];
+	char title[128];
+	char description[256];
+	char action[64];
+	char required_policy[64];
+	char step_values[AGENT_MAX_SKILL_STEPS][96];
+	char source[128];
+};
+
+struct agent_skill_registry {
+	struct agent_manifest_skill manifests[AGENT_MAX_MANIFEST_SKILLS];
+	size_t manifest_count;
+};
+
+static int json_extract_string_field(const char *json, const char *key,
+				     char *out, size_t out_size);
+static int json_extract_string_array_field(const char *json, const char *key,
+					   char values[][96], size_t max_values);
+static int json_extract_bool_field(const char *json, const char *key,
+				   int *value);
+static const struct agent_skill *agent_find_skill(const char *id);
+static const struct agent_skill *
+agent_find_manifest_skill(const struct agent_skill_registry *registry,
+			  const char *id);
 
 static void json_escape(FILE *fp, const char *value)
 {
@@ -794,6 +839,9 @@ static int agent_command_allowed(char *const argv[])
 			return 1;
 		if (strcmp(argv[2], "network.wireless") == 0 &&
 		    strcmp(argv[3], "status") == 0 && !argv[4])
+			return 1;
+		if (strcmp(argv[2], "service") == 0 &&
+		    strcmp(argv[3], "list") == 0 && !argv[4])
 			return 1;
 		return 0;
 	}
@@ -1957,6 +2005,9 @@ static int EDGEPULSE_AGENT_UNUSED print_agent_status(void)
 	printf("      \"edgepulse.agent.status\": %s,\n", agent.mcp_allow_agent_status ? "true" : "false");
 	printf("      \"edgepulse.agent.chat.list\": %s,\n", agent.mcp_allow_chat_list ? "true" : "false");
 	printf("      \"edgepulse.agent.chat.ask\": %s,\n", agent.mcp_allow_chat_ask ? "true" : "false");
+	printf("      \"edgepulse.agent.skill.list\": %s,\n", agent.mcp_allow_agent_status ? "true" : "false");
+	printf("      \"edgepulse.agent.skill.plan\": %s,\n", agent.mcp_allow_agent_status ? "true" : "false");
+	printf("      \"edgepulse.agent.skill.run\": %s,\n", agent.mcp_allow_action_run ? "true" : "false");
 	printf("      \"edgepulse.agent.action.run\": %s,\n", agent.mcp_allow_action_run ? "true" : "false");
 	printf("      \"edgepulse.agent.audit.list\": %s,\n", agent.mcp_allow_audit_list ? "true" : "false");
 	printf("      \"edgepulse.ubus.status.network\": %s,\n", agent.mcp_allow_ubus_status_network ? "true" : "false");
@@ -2923,7 +2974,7 @@ static int EDGEPULSE_AGENT_UNUSED print_agent_action(int argc, char **argv)
 	int result_count = 0;
 
 	if (argc < 4) {
-		fprintf(stderr, "Usage: edgepulse-ctl agent action <status|wifi-status|logs-recent|reconnect-wan|wifi-set> [--confirm] [options]\n");
+		fprintf(stderr, "Usage: edgepulse-ctl agent action <status|wifi-status|logs-recent|service-status|dns-diagnose|reconnect-wan|wifi-set> [--confirm] [options]\n");
 		return 2;
 	}
 
@@ -2941,11 +2992,16 @@ static int EDGEPULSE_AGENT_UNUSED print_agent_action(int argc, char **argv)
 		     request_id, action, agent.policy_profile);
 
 	if (strcmp(action, "status") == 0 || strcmp(action, "wifi-status") == 0 ||
-	    strcmp(action, "logs-recent") == 0) {
+	    strcmp(action, "logs-recent") == 0 ||
+	    strcmp(action, "service-status") == 0 ||
+	    strcmp(action, "dns-diagnose") == 0) {
 		char *const uptime_argv[] = { "uptime", NULL };
 		char *const network_argv[] = { "ubus", "call", "network.interface", "dump", NULL };
 		char *const wireless_argv[] = { "ubus", "call", "network.wireless", "status", NULL };
+		char *const service_argv[] = { "ubus", "call", "service", "list", NULL };
 		char *const logs_argv[] = { "logread", "-l", "80", NULL };
+		char *const ping_ip_argv[] = { "ping", "-c", "1", "-W", "2", "1.1.1.1", NULL };
+		char *const ping_dns_argv[] = { "ping", "-c", "1", "-W", "2", "openwrt.org", NULL };
 
 		if (strcmp(action, "status") == 0) {
 			agent_run_read_only_command("shell.uptime", uptime_argv,
@@ -2968,8 +3024,25 @@ static int EDGEPULSE_AGENT_UNUSED print_agent_action(int argc, char **argv)
 						    agent.tool_timeout_sec,
 						    agent.max_tool_output_bytes,
 						    &results[result_count++]);
-		} else {
+		} else if (strcmp(action, "logs-recent") == 0) {
 			agent_run_read_only_command("shell.logread", logs_argv,
+						    agent.tool_timeout_sec,
+						    agent.max_tool_output_bytes,
+						    &results[result_count++]);
+		} else if (strcmp(action, "service-status") == 0) {
+			agent_run_read_only_command("ubus.service.list",
+						    service_argv,
+						    agent.tool_timeout_sec,
+						    agent.max_tool_output_bytes,
+						    &results[result_count++]);
+		} else {
+			agent_run_read_only_command("net.ping.ip",
+						    ping_ip_argv,
+						    agent.tool_timeout_sec,
+						    agent.max_tool_output_bytes,
+						    &results[result_count++]);
+			agent_run_read_only_command("net.ping.dns",
+						    ping_dns_argv,
 						    agent.tool_timeout_sec,
 						    agent.max_tool_output_bytes,
 						    &results[result_count++]);
@@ -3119,7 +3192,448 @@ static int EDGEPULSE_AGENT_UNUSED print_agent_action(int argc, char **argv)
 		return 0;
 	}
 
-	fprintf(stderr, "Usage: edgepulse-ctl agent action <status|wifi-status|logs-recent|reconnect-wan|wifi-set> [--confirm] [options]\n");
+	fprintf(stderr, "Usage: edgepulse-ctl agent action <status|wifi-status|logs-recent|service-status|dns-diagnose|reconnect-wan|wifi-set> [--confirm] [options]\n");
+	return 2;
+}
+
+static const struct agent_skill agent_builtin_skills[] = {
+	{
+		.id = "openwrt.status.summary",
+		.title = "OpenWrt Status Summary",
+		.description = "Collect a local router status summary with uptime, interface, and wireless evidence.",
+		.action = "status",
+		.required_policy = "read_only",
+		.requires_confirm = 0,
+		.read_only = 1,
+		.steps = {
+			"shell.uptime",
+			"ubus.network.interface.dump",
+			"ubus.network.wireless.status",
+			NULL
+		},
+		.source = "builtin"
+	},
+	{
+		.id = "openwrt.wifi.status",
+		.title = "Wi-Fi Status",
+		.description = "Read wireless status through the allowed OpenWrt ubus status method.",
+		.action = "wifi-status",
+		.required_policy = "read_only",
+		.requires_confirm = 0,
+		.read_only = 1,
+		.steps = {
+			"ubus.network.wireless.status",
+			NULL
+		},
+		.source = "builtin"
+	},
+	{
+		.id = "openwrt.logs.recent",
+		.title = "Recent Logs",
+		.description = "Read a bounded recent log window for diagnostics.",
+		.action = "logs-recent",
+		.required_policy = "read_only",
+		.requires_confirm = 0,
+		.read_only = 1,
+		.steps = {
+			"shell.logread",
+			NULL
+		},
+		.source = "builtin"
+	},
+	{
+		.id = "openwrt.service.status",
+		.title = "Service Status",
+		.description = "Read OpenWrt service status through the allowed ubus service list method.",
+		.action = "service-status",
+		.required_policy = "read_only",
+		.requires_confirm = 0,
+		.read_only = 1,
+		.steps = {
+			"ubus.service.list",
+			NULL
+		},
+		.source = "builtin"
+	},
+	{
+		.id = "openwrt.dns.diagnose",
+		.title = "DNS Diagnose",
+		.description = "Check basic IP and DNS reachability with bounded ping commands.",
+		.action = "dns-diagnose",
+		.required_policy = "read_only",
+		.requires_confirm = 0,
+		.read_only = 1,
+		.steps = {
+			"net.ping.ip",
+			"net.ping.dns",
+			NULL
+		},
+		.source = "builtin"
+	},
+	{
+		.id = "openwrt.wan.reconnect",
+		.title = "Reconnect WAN",
+		.description = "Reconnect the WAN interface and verify network status and reachability.",
+		.action = "reconnect-wan",
+		.required_policy = "operator_confirmed",
+		.requires_confirm = 1,
+		.read_only = 0,
+		.steps = {
+			"netifd.ifdown.wan",
+			"netifd.ifup.wan",
+			"ubus.network.interface.dump",
+			"net.ping.ip",
+			"net.ping.dns",
+			NULL
+		},
+		.source = "builtin"
+	},
+	{
+		.id = "openwrt.wifi.set_ssid",
+		.title = "Set Wi-Fi SSID",
+		.description = "Write validated wireless UCI settings and reload Wi-Fi.",
+		.action = "wifi-set",
+		.required_policy = "operator_confirmed",
+		.requires_confirm = 1,
+		.read_only = 0,
+		.steps = {
+			"uci.wireless.ssid",
+			"uci.wireless.encryption",
+			"uci.wireless.key",
+			"uci.wireless.enable",
+			"uci.wireless.commit",
+			"wifi.reload",
+			"ubus.network.wireless.status",
+			NULL
+		},
+		.source = "builtin"
+	},
+};
+
+static size_t agent_skill_count(void)
+{
+	return sizeof(agent_builtin_skills) / sizeof(agent_builtin_skills[0]);
+}
+
+static int agent_skill_action_supported(const char *action)
+{
+	return action &&
+		(strcmp(action, "status") == 0 ||
+		 strcmp(action, "wifi-status") == 0 ||
+		 strcmp(action, "logs-recent") == 0 ||
+		 strcmp(action, "service-status") == 0 ||
+		 strcmp(action, "dns-diagnose") == 0 ||
+		 strcmp(action, "reconnect-wan") == 0 ||
+		 strcmp(action, "wifi-set") == 0);
+}
+
+static const char *agent_skills_dir(void)
+{
+	const char *path = getenv("EDGEPULSE_SKILLS_DIR");
+	struct stat st;
+
+	if (path && path[0] != '\0')
+		return path;
+	if (stat("skills.d", &st) == 0 && S_ISDIR(st.st_mode))
+		return "skills.d";
+	return EDGEPULSE_SKILLS_DIR;
+}
+
+static int agent_read_file_limited(const char *path, char *out, size_t out_size)
+{
+	FILE *fp;
+	size_t nread;
+
+	if (!path || !out || out_size == 0)
+		return -1;
+	fp = fopen(path, "r");
+	if (!fp)
+		return -1;
+	nread = fread(out, 1, out_size - 1, fp);
+	out[nread] = '\0';
+	if (ferror(fp)) {
+		fclose(fp);
+		return -1;
+	}
+	fclose(fp);
+	return 0;
+}
+
+static void agent_bind_manifest_skill(struct agent_manifest_skill *manifest)
+{
+	manifest->skill.id = manifest->id;
+	manifest->skill.title = manifest->title;
+	manifest->skill.description = manifest->description;
+	manifest->skill.action = manifest->action;
+	manifest->skill.required_policy = manifest->required_policy;
+	manifest->skill.source = manifest->source;
+	for (int i = 0; i < AGENT_MAX_SKILL_STEPS && manifest->step_values[i][0]; i++)
+		manifest->skill.steps[i] = manifest->step_values[i];
+}
+
+static int agent_load_manifest_skill(const char *source_name, const char *json,
+				     struct agent_manifest_skill *manifest)
+{
+	int confirm = 0;
+	int read_only = 0;
+	int step_count;
+
+	memset(manifest, 0, sizeof(*manifest));
+	if (json_extract_string_field(json, "id", manifest->id,
+				      sizeof(manifest->id)) != 0 ||
+	    json_extract_string_field(json, "title", manifest->title,
+				      sizeof(manifest->title)) != 0 ||
+	    json_extract_string_field(json, "description", manifest->description,
+				      sizeof(manifest->description)) != 0 ||
+	    json_extract_string_field(json, "action", manifest->action,
+				      sizeof(manifest->action)) != 0 ||
+	    json_extract_string_field(json, "required_policy",
+				      manifest->required_policy,
+				      sizeof(manifest->required_policy)) != 0)
+		return -1;
+
+	if (!agent_skill_action_supported(manifest->action))
+		return -1;
+	if (strcmp(manifest->required_policy, "read_only") != 0 &&
+	    strcmp(manifest->required_policy, "operator_confirmed") != 0)
+		return -1;
+	confirm = strcmp(manifest->required_policy, "operator_confirmed") == 0;
+	read_only = strcmp(manifest->required_policy, "read_only") == 0;
+	if (json_extract_bool_field(json, "requires_confirm", &confirm) == 0 &&
+	    confirm && read_only)
+		return -1;
+
+	step_count = json_extract_string_array_field(json, "steps",
+						     manifest->step_values,
+						     AGENT_MAX_SKILL_STEPS - 1);
+	if (step_count <= 0)
+		return -1;
+
+	snprintf(manifest->source, sizeof(manifest->source), "%s",
+		 source_name ? source_name : "manifest");
+	manifest->skill.requires_confirm = confirm;
+	manifest->skill.read_only = read_only;
+	manifest->skill.steps[step_count] = NULL;
+	agent_bind_manifest_skill(manifest);
+	return 0;
+}
+
+static void agent_load_skill_registry(struct agent_skill_registry *registry)
+{
+	const char *dir_path = agent_skills_dir();
+	DIR *dir;
+	struct dirent *entry;
+
+	memset(registry, 0, sizeof(*registry));
+	dir = opendir(dir_path);
+	if (!dir)
+		return;
+
+	while ((entry = readdir(dir)) != NULL &&
+	       registry->manifest_count < AGENT_MAX_MANIFEST_SKILLS) {
+		char path[512];
+		char json[8192];
+		size_t len = strlen(entry->d_name);
+		struct agent_manifest_skill candidate;
+
+		if (len < 6 || strcmp(entry->d_name + len - 5, ".json") != 0)
+			continue;
+		if (strchr(entry->d_name, '/'))
+			continue;
+		snprintf(path, sizeof(path), "%s/%s", dir_path, entry->d_name);
+		if (agent_read_file_limited(path, json, sizeof(json)) != 0)
+			continue;
+		if (agent_load_manifest_skill(entry->d_name, json, &candidate) != 0)
+			continue;
+		if (agent_find_skill(candidate.id))
+			continue;
+		if (agent_find_manifest_skill(registry, candidate.id))
+			continue;
+		registry->manifests[registry->manifest_count] = candidate;
+		agent_bind_manifest_skill(&registry->manifests[registry->manifest_count]);
+		registry->manifest_count++;
+	}
+
+	closedir(dir);
+}
+
+static const struct agent_skill *
+agent_find_manifest_skill(const struct agent_skill_registry *registry,
+			  const char *id)
+{
+	if (!registry || !id || id[0] == '\0')
+		return NULL;
+	for (size_t i = 0; i < registry->manifest_count; i++) {
+		if (strcmp(registry->manifests[i].skill.id, id) == 0)
+			return &registry->manifests[i].skill;
+	}
+	return NULL;
+}
+
+static const struct agent_skill *agent_find_skill(const char *id)
+{
+	if (!id || id[0] == '\0')
+		return NULL;
+	for (size_t i = 0; i < agent_skill_count(); i++) {
+		if (strcmp(agent_builtin_skills[i].id, id) == 0)
+			return &agent_builtin_skills[i];
+	}
+	return NULL;
+}
+
+static int agent_skill_allowed(const struct agent_config *agent,
+			       const struct agent_skill *skill)
+{
+	if (!skill)
+		return 0;
+	if (skill->read_only)
+		return 1;
+	if (strcmp(skill->action, "reconnect-wan") == 0 && !agent->allow_reconnect_wan)
+		return 0;
+	if (strcmp(skill->action, "wifi-set") == 0 && !agent->allow_wifi_set)
+		return 0;
+	return agent_policy_allows_mutation(agent);
+}
+
+static void print_agent_skill_json(const struct agent_config *agent,
+				   const struct agent_skill *skill,
+				   int include_steps)
+{
+	printf("{ \"id\": ");
+	print_json_string(skill->id);
+	printf(", \"title\": ");
+	print_json_string(skill->title);
+	printf(", \"description\": ");
+	print_json_string(skill->description);
+	printf(", \"action\": ");
+	print_json_string(skill->action);
+	printf(", \"required_policy\": ");
+	print_json_string(skill->required_policy);
+	printf(", \"requires_confirm\": %s", skill->requires_confirm ? "true" : "false");
+	printf(", \"read_only\": %s", skill->read_only ? "true" : "false");
+	printf(", \"source\": ");
+	print_json_string(skill->source ? skill->source : "builtin");
+	printf(", \"allowed\": %s", agent_skill_allowed(agent, skill) ? "true" : "false");
+	if (include_steps) {
+		printf(", \"steps\": [");
+		for (int i = 0; skill->steps[i]; i++) {
+			if (i > 0)
+				printf(", ");
+			print_json_string(skill->steps[i]);
+		}
+		printf("]");
+	}
+	printf(" }");
+}
+
+static int EDGEPULSE_AGENT_UNUSED print_agent_skill_list(void)
+{
+	struct agent_config agent;
+	struct agent_model_config model;
+	struct agent_skill_registry registry;
+
+	read_agent_config(&agent, &model);
+	agent_load_skill_registry(&registry);
+	printf("{\n");
+	printf("  \"status\": \"ok\",\n");
+	printf("  \"source\": \"builtin_plus_manifests\",\n");
+	printf("  \"manifest_dir\": ");
+	print_json_string(agent_skills_dir());
+	printf(",\n");
+	printf("  \"skills\": [\n");
+	for (size_t i = 0; i < agent_skill_count(); i++) {
+		if (i > 0)
+			printf(",\n");
+		printf("    ");
+		print_agent_skill_json(&agent, &agent_builtin_skills[i], 0);
+	}
+	for (size_t i = 0; i < registry.manifest_count; i++) {
+		printf(",\n");
+		printf("    ");
+		print_agent_skill_json(&agent, &registry.manifests[i].skill, 0);
+	}
+	printf("\n");
+	printf("  ]\n");
+	printf("}\n");
+	return 0;
+}
+
+static int EDGEPULSE_AGENT_UNUSED print_agent_skill_plan(const char *id)
+{
+	struct agent_config agent;
+	struct agent_model_config model;
+	struct agent_skill_registry registry;
+	const struct agent_skill *skill = agent_find_skill(id);
+
+	agent_load_skill_registry(&registry);
+	if (!skill)
+		skill = agent_find_manifest_skill(&registry, id);
+
+	if (!skill) {
+		printf("{ \"status\": \"not_found\", \"skill\": ");
+		print_json_string(id);
+		printf(", \"answer\": \"Unknown EdgePulse skill id.\" }\n");
+		return 0;
+	}
+
+	read_agent_config(&agent, &model);
+	printf("{\n");
+	printf("  \"status\": \"ok\",\n");
+	printf("  \"skill\": ");
+	print_agent_skill_json(&agent, skill, 1);
+	printf(",\n");
+	printf("  \"execution_path\": [\"Intent\", \"Skill Registry\", \"Policy Engine\", \"Confirmation Gate\", \"Skill Runner\", \"Post Verification\", \"Audit Logger\"]\n");
+	printf("}\n");
+	return 0;
+}
+
+static int EDGEPULSE_AGENT_UNUSED print_agent_skill_run(int argc, char **argv)
+{
+	struct agent_skill_registry registry;
+	const struct agent_skill *skill;
+	char *action_argv[AGENT_MAX_SKILL_ARGS];
+	int action_argc = 4;
+
+	if (argc < 5) {
+		fprintf(stderr, "Usage: edgepulse-ctl agent skill run <skill_id> [--confirm] [options]\n");
+		return 2;
+	}
+
+	agent_load_skill_registry(&registry);
+	skill = agent_find_skill(argv[4]);
+	if (!skill)
+		skill = agent_find_manifest_skill(&registry, argv[4]);
+	if (!skill) {
+		printf("{ \"status\": \"not_found\", \"skill\": ");
+		print_json_string(argv[4]);
+		printf(", \"answer\": \"Unknown EdgePulse skill id.\" }\n");
+		return 0;
+	}
+
+	action_argv[0] = argv[0];
+	action_argv[1] = argv[1];
+	action_argv[2] = "action";
+	action_argv[3] = (char *)skill->action;
+	for (int i = 5; i < argc && action_argc < AGENT_MAX_SKILL_ARGS - 1; i++)
+		action_argv[action_argc++] = argv[i];
+	action_argv[action_argc] = NULL;
+	return print_agent_action(action_argc, action_argv);
+}
+
+static int EDGEPULSE_AGENT_UNUSED handle_agent_skill_command(int argc, char **argv)
+{
+	if (argc >= 4 && strcmp(argv[3], "list") == 0)
+		return print_agent_skill_list();
+	if (argc >= 4 && strcmp(argv[3], "plan") == 0) {
+		if (argc < 5) {
+			fprintf(stderr, "Usage: edgepulse-ctl agent skill plan <skill_id>\n");
+			return 2;
+		}
+		return print_agent_skill_plan(argv[4]);
+	}
+	if (argc >= 4 && strcmp(argv[3], "run") == 0)
+		return print_agent_skill_run(argc, argv);
+	fprintf(stderr, "Usage: edgepulse-ctl agent skill <list|plan|run> [skill_id] [options]\n");
 	return 2;
 }
 
@@ -3137,7 +3651,7 @@ static int EDGEPULSE_AGENT_UNUSED print_agent_policy(void)
 	print_json_string(agent_policy_allows_mutation(&agent) ?
 			  "operator_confirmed" : "read_only");
 	printf(",\n");
-	printf("  \"allowed_tools\": [\"edgepulse_snapshot\", \"shell.uname\", \"shell.uptime\", \"shell.logread\", \"ubus.system.board\", \"ubus.system.info\", \"ubus.network.interface.dump\", \"ubus.network.wireless.status\"],\n");
+	printf("  \"allowed_tools\": [\"edgepulse_snapshot\", \"shell.uname\", \"shell.uptime\", \"shell.logread\", \"ubus.system.board\", \"ubus.system.info\", \"ubus.network.interface.dump\", \"ubus.network.wireless.status\", \"ubus.service.list\", \"net.ping.ip\", \"net.ping.dns\"],\n");
 	printf("  \"confirmed_actions\": [\"reconnect-wan\", \"wifi-set\"],\n");
 	printf("  \"action_permissions\": {\n");
 	printf("    \"reconnect_wan\": %s,\n", agent.allow_reconnect_wan ? "true" : "false");
@@ -3161,6 +3675,12 @@ static int agent_mcp_method_allowed(const struct agent_config *agent,
 		return agent->mcp_allow_chat_list;
 	if (strcmp(method, "edgepulse.agent.chat.ask") == 0)
 		return agent->mcp_allow_chat_ask;
+	if (strcmp(method, "edgepulse.agent.skill.list") == 0)
+		return agent->mcp_allow_agent_status;
+	if (strcmp(method, "edgepulse.agent.skill.plan") == 0)
+		return agent->mcp_allow_agent_status;
+	if (strcmp(method, "edgepulse.agent.skill.run") == 0)
+		return agent->mcp_allow_action_run;
 	if (strcmp(method, "edgepulse.agent.action.run") == 0)
 		return agent->mcp_allow_action_run;
 	if (strcmp(method, "edgepulse.agent.audit.list") == 0)
@@ -3201,6 +3721,12 @@ static int EDGEPULSE_AGENT_UNUSED print_agent_mcp_methods(void)
 	print_agent_mcp_method_json(&agent, "edgepulse.agent.chat.list", "read_only");
 	printf(",\n");
 	print_agent_mcp_method_json(&agent, "edgepulse.agent.chat.ask", "agent_request");
+	printf(",\n");
+	print_agent_mcp_method_json(&agent, "edgepulse.agent.skill.list", "read_only");
+	printf(",\n");
+	print_agent_mcp_method_json(&agent, "edgepulse.agent.skill.plan", "read_only");
+	printf(",\n");
+	print_agent_mcp_method_json(&agent, "edgepulse.agent.skill.run", "policy_gated");
 	printf(",\n");
 	print_agent_mcp_method_json(&agent, "edgepulse.agent.action.run", "policy_gated");
 	printf(",\n");
@@ -3246,6 +3772,12 @@ static void print_agent_mcp_tools_array(void)
 		print_agent_mcp_tool_entry("edgepulse.agent.chat.list", "Read shared conversation messages", &first);
 	if (agent_mcp_method_allowed(&agent, "edgepulse.agent.chat.ask"))
 		print_agent_mcp_tool_entry("edgepulse.agent.chat.ask", "Send a message to the EdgePulse AI Agent", &first);
+	if (agent_mcp_method_allowed(&agent, "edgepulse.agent.skill.list"))
+		print_agent_mcp_tool_entry("edgepulse.agent.skill.list", "List deterministic EdgePulse skills and policy metadata", &first);
+	if (agent_mcp_method_allowed(&agent, "edgepulse.agent.skill.plan"))
+		print_agent_mcp_tool_entry("edgepulse.agent.skill.plan", "Show the deterministic execution plan for an EdgePulse skill", &first);
+	if (agent_mcp_method_allowed(&agent, "edgepulse.agent.skill.run"))
+		print_agent_mcp_tool_entry("edgepulse.agent.skill.run", "Run a deterministic EdgePulse skill through policy-gated actions", &first);
 	if (agent_mcp_method_allowed(&agent, "edgepulse.agent.action.run"))
 		print_agent_mcp_tool_entry("edgepulse.agent.action.run", "Run a policy-gated named EdgePulse action", &first);
 	if (agent_mcp_method_allowed(&agent, "edgepulse.agent.audit.list"))
@@ -3346,6 +3878,33 @@ static int EDGEPULSE_AGENT_UNUSED handle_agent_mcp_call(int argc, char **argv)
 		}
 		return print_agent_diagnose_conversation(argv[6], argv[5]);
 	}
+	if (strcmp(method, "edgepulse.agent.skill.list") == 0)
+		return print_agent_skill_list();
+	if (strcmp(method, "edgepulse.agent.skill.plan") == 0) {
+		if (argc < 6) {
+			fprintf(stderr, "Usage: edgepulse-ctl agent mcp call edgepulse.agent.skill.plan <skill_id>\n");
+			return 2;
+		}
+		return print_agent_skill_plan(argv[5]);
+	}
+	if (strcmp(method, "edgepulse.agent.skill.run") == 0) {
+		char *skill_argv[AGENT_MAX_SKILL_ARGS];
+		int skill_argc = 5;
+
+		if (argc < 6) {
+			fprintf(stderr, "Usage: edgepulse-ctl agent mcp call edgepulse.agent.skill.run <skill_id> [args]\n");
+			return 2;
+		}
+		skill_argv[0] = argv[0];
+		skill_argv[1] = argv[1];
+		skill_argv[2] = "skill";
+		skill_argv[3] = "run";
+		skill_argv[4] = argv[5];
+		for (int i = 6; i < argc && skill_argc < AGENT_MAX_SKILL_ARGS - 1; i++)
+			skill_argv[skill_argc++] = argv[i];
+		skill_argv[skill_argc] = NULL;
+		return print_agent_skill_run(skill_argc, skill_argv);
+	}
 	if (strcmp(method, "edgepulse.agent.action.run") == 0) {
 		char *action_argv[16];
 		int action_argc = 4;
@@ -3432,6 +3991,55 @@ static int json_extract_string_field(const char *json, const char *key,
 	}
 	out[used] = '\0';
 	return used > 0 ? 0 : -1;
+}
+
+static int json_extract_string_array_field(const char *json, const char *key,
+					   char values[][96], size_t max_values)
+{
+	char pattern[96];
+	const char *cursor;
+	size_t count = 0;
+
+	if (!json || !key || !values || max_values == 0)
+		return -1;
+	snprintf(pattern, sizeof(pattern), "\"%s\"", key);
+	cursor = strstr(json, pattern);
+	if (!cursor)
+		return -1;
+	cursor = strchr(cursor + strlen(pattern), ':');
+	if (!cursor)
+		return -1;
+	cursor++;
+	while (*cursor == ' ' || *cursor == '\t' || *cursor == '\n' || *cursor == '\r')
+		cursor++;
+	if (*cursor != '[')
+		return -1;
+	cursor++;
+
+	while (*cursor && *cursor != ']' && count < max_values) {
+		size_t used = 0;
+
+		while (*cursor == ' ' || *cursor == '\t' || *cursor == '\n' ||
+		       *cursor == '\r' || *cursor == ',')
+			cursor++;
+		if (*cursor == ']')
+			break;
+		if (*cursor != '"')
+			return -1;
+		cursor++;
+		while (*cursor && *cursor != '"' && used + 1 < sizeof(values[0])) {
+			if (*cursor == '\\' && cursor[1])
+				cursor++;
+			values[count][used++] = *cursor++;
+		}
+		values[count][used] = '\0';
+		if (*cursor != '"' || used == 0)
+			return -1;
+		cursor++;
+		count++;
+	}
+
+	return count > 0 ? (int)count : -1;
 }
 
 static int json_extract_bool_field(const char *json, const char *key,
@@ -3594,6 +4202,7 @@ static void handle_agent_mcp_jsonrpc_line(const char *line)
 	char conversation_id[64] = "default";
 	char message[1024] = "";
 	char action[64] = "";
+	char skill_id[128] = "";
 	char ssid[128] = "";
 	char key[128] = "";
 	char encryption[64] = "";
@@ -3654,6 +4263,32 @@ static void handle_agent_mcp_jsonrpc_line(const char *line)
 		if (json_extract_string_field(line, "conversation_id", conversation_id,
 					      sizeof(conversation_id)) == 0)
 			call_argv[call_argc++] = conversation_id;
+	} else if (strcmp(name, "edgepulse.agent.skill.plan") == 0 ||
+		   strcmp(name, "edgepulse.agent.skill.run") == 0) {
+		if (json_extract_string_field(line, "skill_id", skill_id,
+					      sizeof(skill_id)) != 0) {
+			print_mcp_jsonrpc_error(id, -32602,
+						"edgepulse.agent.skill requires skill_id");
+			return;
+		}
+		call_argv[call_argc++] = skill_id;
+		if (strcmp(name, "edgepulse.agent.skill.run") == 0) {
+			if (json_extract_bool_field(line, "confirm", &confirm) == 0 && confirm)
+				call_argv[call_argc++] = "--confirm";
+			if (json_extract_string_field(line, "ssid", ssid, sizeof(ssid)) == 0) {
+				call_argv[call_argc++] = "--ssid";
+				call_argv[call_argc++] = ssid;
+			}
+			if (json_extract_string_field(line, "key", key, sizeof(key)) == 0) {
+				call_argv[call_argc++] = "--key";
+				call_argv[call_argc++] = key;
+			}
+			if (json_extract_string_field(line, "encryption", encryption,
+						      sizeof(encryption)) == 0) {
+				call_argv[call_argc++] = "--encryption";
+				call_argv[call_argc++] = encryption;
+			}
+		}
 	} else if (strcmp(name, "edgepulse.agent.action.run") == 0) {
 		if (json_extract_string_field(line, "action", action,
 					      sizeof(action)) != 0) {
@@ -3747,7 +4382,7 @@ static int handle_agent_command(int argc, char **argv)
 	return 0;
 #else
 	if (argc < 3) {
-		fprintf(stderr, "Usage: edgepulse-ctl agent <status|diagnose|ask|chat|action|mcp|memory|models|audit|policy> [message]\n");
+		fprintf(stderr, "Usage: edgepulse-ctl agent <status|diagnose|ask|chat|skill|action|mcp|memory|models|audit|policy> [message]\n");
 		return 2;
 	}
 
@@ -3781,6 +4416,9 @@ static int handle_agent_command(int argc, char **argv)
 
 	if (strcmp(argv[2], "action") == 0)
 		return print_agent_action(argc, argv);
+
+	if (strcmp(argv[2], "skill") == 0)
+		return handle_agent_skill_command(argc, argv);
 
 	if (strcmp(argv[2], "mcp") == 0)
 		return handle_agent_mcp_command(argc, argv);
@@ -3821,7 +4459,7 @@ static int handle_agent_command(int argc, char **argv)
 		return 2;
 	}
 
-	fprintf(stderr, "Usage: edgepulse-ctl agent <status|diagnose|ask|chat|action|mcp|memory|models|audit|policy> [message]\n");
+	fprintf(stderr, "Usage: edgepulse-ctl agent <status|diagnose|ask|chat|skill|action|mcp|memory|models|audit|policy> [message]\n");
 	return 2;
 #endif
 }

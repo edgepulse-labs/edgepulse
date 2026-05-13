@@ -174,6 +174,10 @@ static int agent_ubus_simple_call(struct ubus_context *ctx,
 		argv[2] = "audit";
 		argv[3] = "list";
 	}
+	if (strcmp(method, "skill.list") == 0) {
+		argv[2] = "skill";
+		argv[3] = "list";
+	}
 	rc = capture_agent_ctl(argv, output, sizeof(output));
 	agent_ubus_reply(ctx, req, method, rc, output);
 	return 0;
@@ -259,6 +263,91 @@ static const struct blobmsg_policy action_policy[ACTION_MAX] = {
 	[ACTION_ENCRYPTION] = { .name = "encryption", .type = BLOBMSG_TYPE_STRING },
 };
 
+enum {
+	SKILL_ID,
+	SKILL_CONFIRM,
+	SKILL_SSID,
+	SKILL_KEY,
+	SKILL_ENCRYPTION,
+	SKILL_MAX
+};
+
+static const struct blobmsg_policy skill_policy[SKILL_MAX] = {
+	[SKILL_ID] = { .name = "skill_id", .type = BLOBMSG_TYPE_STRING },
+	[SKILL_CONFIRM] = { .name = "confirm", .type = BLOBMSG_TYPE_BOOL },
+	[SKILL_SSID] = { .name = "ssid", .type = BLOBMSG_TYPE_STRING },
+	[SKILL_KEY] = { .name = "key", .type = BLOBMSG_TYPE_STRING },
+	[SKILL_ENCRYPTION] = { .name = "encryption", .type = BLOBMSG_TYPE_STRING },
+};
+
+static int agent_ubus_skill_plan(struct ubus_context *ctx,
+				 struct ubus_object *obj __attribute__((unused)),
+				 struct ubus_request_data *req,
+				 const char *method,
+				 struct blob_attr *msg)
+{
+	struct blob_attr *tb[SKILL_MAX];
+	char output[16384];
+	char *argv[] = { "edgepulse-ctl", "agent", "skill", "plan", NULL, NULL };
+	int rc;
+
+	blobmsg_parse(skill_policy, SKILL_MAX, tb, blob_data(msg), blob_len(msg));
+	if (!tb[SKILL_ID]) {
+		agent_ubus_reply(ctx, req, method, 2,
+				 "{\"status\":\"error\",\"answer\":\"skill.plan requires skill_id\"}");
+		return 0;
+	}
+
+	argv[4] = (char *)blobmsg_get_string(tb[SKILL_ID]);
+	rc = capture_agent_ctl(argv, output, sizeof(output));
+	agent_ubus_reply(ctx, req, method, rc, output);
+	return 0;
+}
+
+static int agent_ubus_skill_run(struct ubus_context *ctx,
+				struct ubus_object *obj __attribute__((unused)),
+				struct ubus_request_data *req,
+				const char *method,
+				struct blob_attr *msg)
+{
+	struct blob_attr *tb[SKILL_MAX];
+	char output[16384];
+	char *argv[14];
+	int argc = 0;
+	int rc;
+
+	blobmsg_parse(skill_policy, SKILL_MAX, tb, blob_data(msg), blob_len(msg));
+	if (!tb[SKILL_ID]) {
+		agent_ubus_reply(ctx, req, method, 2,
+				 "{\"status\":\"error\",\"answer\":\"skill.run requires skill_id\"}");
+		return 0;
+	}
+
+	argv[argc++] = "edgepulse-ctl";
+	argv[argc++] = "agent";
+	argv[argc++] = "skill";
+	argv[argc++] = "run";
+	argv[argc++] = (char *)blobmsg_get_string(tb[SKILL_ID]);
+	if (tb[SKILL_CONFIRM] && blobmsg_get_bool(tb[SKILL_CONFIRM]))
+		argv[argc++] = "--confirm";
+	if (tb[SKILL_SSID]) {
+		argv[argc++] = "--ssid";
+		argv[argc++] = (char *)blobmsg_get_string(tb[SKILL_SSID]);
+	}
+	if (tb[SKILL_KEY]) {
+		argv[argc++] = "--key";
+		argv[argc++] = (char *)blobmsg_get_string(tb[SKILL_KEY]);
+	}
+	if (tb[SKILL_ENCRYPTION]) {
+		argv[argc++] = "--encryption";
+		argv[argc++] = (char *)blobmsg_get_string(tb[SKILL_ENCRYPTION]);
+	}
+	argv[argc] = NULL;
+	rc = capture_agent_ctl(argv, output, sizeof(output));
+	agent_ubus_reply(ctx, req, method, rc, output);
+	return 0;
+}
+
 static int agent_ubus_action_run(struct ubus_context *ctx,
 				 struct ubus_object *obj __attribute__((unused)),
 				 struct ubus_request_data *req,
@@ -323,8 +412,18 @@ static int agent_ubus_audit_list(struct ubus_context *ctx, struct ubus_object *o
 	return agent_ubus_simple_call(ctx, obj, req, "audit.list", msg);
 }
 
+static int agent_ubus_skill_list(struct ubus_context *ctx, struct ubus_object *obj,
+				 struct ubus_request_data *req, const char *method,
+				 struct blob_attr *msg)
+{
+	return agent_ubus_simple_call(ctx, obj, req, "skill.list", msg);
+}
+
 static const struct ubus_method agent_ubus_methods[] = {
 	UBUS_METHOD_NOARG("status", agent_ubus_status),
+	UBUS_METHOD_NOARG("skill.list", agent_ubus_skill_list),
+	UBUS_METHOD("skill.plan", agent_ubus_skill_plan, skill_policy),
+	UBUS_METHOD("skill.run", agent_ubus_skill_run, skill_policy),
 	UBUS_METHOD("chat.ask", agent_ubus_chat_ask, chat_ask_policy),
 	UBUS_METHOD("chat.list", agent_ubus_chat_list, chat_ask_policy),
 	UBUS_METHOD("action.run", agent_ubus_action_run, action_policy),

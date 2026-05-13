@@ -255,6 +255,16 @@ Responsibilities:
 * expose metadata
 * version tracking
 
+Current implementation note:
+
+* `edgepulse-ctl agent skill list` exposes the built-in MVP registry plus validated JSON manifests.
+* `edgepulse-ctl agent skill plan <skill_id>` returns deterministic steps, policy metadata, and the execution gate path.
+* `edgepulse-ctl agent skill run <skill_id> [--confirm] [options]` maps a known skill to the existing policy-gated action runner.
+* MCP exposes `edgepulse.agent.skill.list`, `edgepulse.agent.skill.plan`, and `edgepulse.agent.skill.run`.
+* `edgepulse.agent` ubus exposes `skill.list`, `skill.plan`, and `skill.run` when built with ubus support.
+* JSON manifests are loaded from `EDGEPULSE_SKILLS_DIR`, local `skills.d/`, or `/usr/share/edgepulse/skills.d`.
+* Manifest `action` values must map to fixed policy-gated actions; arbitrary commands are still rejected.
+
 ⸻
 
 6.2 Skill Runner
@@ -482,6 +492,11 @@ audit.list
 mcp.tools.list
 mcp.tools.call
 
+Current implementation note:
+
+* Implemented: `status`, `skill.list`, `skill.plan`, `skill.run`, `chat.ask`, `chat.list`, `action.run`, `policy.show`, `audit.list`.
+* Still pending as direct ubus methods: `mcp.tools.list`, `mcp.tools.call`.
+
 ⸻
 
 10.2 Why ubus
@@ -598,6 +613,11 @@ Phase 1
 * skill registry
 * skill runner
 * audit logging
+
+Status:
+
+* Done for MVP path: persistent agent heartbeat, ubus object, built-in and manifest-backed skill registry, skill runner mapped to policy-gated actions, and audit logging.
+* Remaining hardening: richer rollback state and direct ubus MCP tool wrappers.
 
 ⸻
 

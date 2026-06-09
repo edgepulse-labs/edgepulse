@@ -1,0 +1,17 @@
+{
+  "id": "openwrt.dns.quick_check",
+  "title": "DNS Quick Check",
+  "description": "Check basic IP and DNS reachability through bounded read-only commands.",
+  "version": "1",
+  "action": "dns-diagnose",
+  "required_policy": "read_only",
+  "requires_confirm": false,
+  "steps": [
+    "net.ping.ip",
+    "net.ping.dns"
+  ],
+  "inputs_schema": {
+    "type": "object",
+    "properties": {}
+  }
+}

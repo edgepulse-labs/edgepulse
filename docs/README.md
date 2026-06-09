@@ -17,6 +17,7 @@ This directory keeps implementation-oriented project documents.
 - [AI Agent OpenWrt model validation use cases](ai-agent-openwrt-model-validation-use-cases.md) / [繁體中文](ai-agent-openwrt-model-validation-use-cases.zh-TW.md): repeatable router-side model benchmark scenarios.
 - [AI Agent OpenWrt operations scenarios](ai-agent-openwrt-operations-scenarios.md) / [繁體中文](ai-agent-openwrt-operations-scenarios.zh-TW.md): user intent catalog, confirmed operations, and implementation plan for OpenWrt status and settings tasks.
 - [AI Agent chat and MCP integration](ai-agent-chat-and-mcp-integration.md) / [繁體中文](ai-agent-chat-and-mcp-integration.zh-TW.md): shared CLI/LuCI conversations and MCP bridge architecture.
+- [EdgePulse skills and external MCP services](skills-and-external-mcp-services.md): deterministic skill manifests, policy-gated skill execution, and future external MCP client boundaries.
 - [Local C MCP adapter vs Rust OpenWrt MCP server](local-c-mcp-vs-rust-openwrt-mcp.md) / [繁體中文](local-c-mcp-vs-rust-openwrt-mcp.zh-TW.md): local C MCP scope, Rust bridge split, and divergence plan.
 - [Test environment variables](test-environment-variables.md) / [繁體中文](test-environment-variables.zh-TW.md): `.env` usage, `.env-example`, and environment variables for unit, integration, and end-to-end tests.
 
